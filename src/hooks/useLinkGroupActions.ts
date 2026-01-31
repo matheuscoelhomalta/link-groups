@@ -311,7 +311,11 @@ export function useLinkGroupActions() {
     keepUrls: string[],
     addUrls: string[],
   ): Promise<{ removed: number; added: number }> {
-    const keepSet = new Set(keepUrls);
+    const keepCounts = new Map<string, number>();
+    for (const url of keepUrls) {
+      keepCounts.set(url, (keepCounts.get(url) || 0) + 1);
+    }
+
     const newLinks: LinkItem[] = addUrls.map((url) => ({
       id: randomUUID(),
       title: titleFromUrl(url),
@@ -325,7 +329,20 @@ export function useLinkGroupActions() {
         const nextGroups = current.groups.map((group) => {
           if (group.id !== groupId) return group;
           foundGroup = true;
-          const keptLinks = group.links.filter((link) => keepSet.has(link.url));
+
+          const keptLinks: LinkItem[] = [];
+          const urlCounts = new Map<string, number>();
+
+          for (const link of group.links) {
+            const currentCount = urlCounts.get(link.url) || 0;
+            const maxCount = keepCounts.get(link.url) || 0;
+
+            if (currentCount < maxCount) {
+              keptLinks.push(link);
+              urlCounts.set(link.url, currentCount + 1);
+            }
+          }
+
           removed = group.links.length - keptLinks.length;
           return { ...group, links: [...newLinks, ...keptLinks] };
         });
