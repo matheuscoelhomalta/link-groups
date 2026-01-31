@@ -18,6 +18,11 @@ export const BROWSER_OPTIONS: { value: Browser; title: string }[] = [
   { value: "com.microsoft.edgemac", title: "Microsoft Edge" },
 ];
 
+export function getBrowserLabel(bundleId?: Browser): string {
+  if (!bundleId) return "System Default";
+  return BROWSER_OPTIONS.find((option) => option.value === bundleId)?.title ?? "System Default";
+}
+
 export type LinkGroup = {
   id: string;
   title: string;

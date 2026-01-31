@@ -45,7 +45,8 @@ link-groups.tsx (main command)
 │
 group-links.tsx (pushed from LinkGroupsCommand)
 ├── GroupLinks - List view of links within a group
-│   └── AddLinkForm - Add link to group
+│   ├── AddLinkForm - Add link to group
+│   └── BulkImportForm - Bulk import URLs
 │
 open-link-group.ts (no-view command)
 └── OpenLinkGroupCommand - Opens all links in a group (triggered via deeplink)
@@ -56,6 +57,7 @@ open-link-group.ts (no-view command)
 **State Management**:
 - No global state library (Redux, Zustand, etc.)
 - All state managed through `useLinkDB()` hook which wraps Raycast's `useLocalStorage`
+- UI commands call into `useLinkGroupActions()` in `src/hooks/useLinkGroupActions.ts` to keep business logic out of components
 - Updates are immutable - map over arrays to create new objects rather than mutating
 
 **ID Generation**:
@@ -67,12 +69,16 @@ open-link-group.ts (no-view command)
 - Empty string `""` means system default browser
 - Browser options defined in `src/lib/types.ts` as `BROWSER_OPTIONS` array
 - Each group can have its own default browser
+- `getBrowserLabel()` in `src/lib/types.ts` resolves the display label for a bundle ID
 
 **Opening Links**:
 - `openAllUrls()` function in `src/lib/openAll.ts` handles opening multiple URLs
 - Uses `Promise.allSettled()` to open all links simultaneously
 - Shows toast notification with success/failure count
 - Respects the group's browser preference via Raycast's `open()` API
+
+**URL Utilities**:
+- `src/lib/url-utils.ts` provides URL normalization, bulk parsing, and title generation for imports
 
 **Deeplinks**:
 - Groups can generate deeplinks using `createDeeplink()` from `@raycast/utils`
