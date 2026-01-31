@@ -6,10 +6,13 @@ import type { Browser } from "./types";
  * Shows a toast with success/failure count
  * @param urls - Array of URLs to open
  * @param browser - Optional browser bundle ID (empty string = system default)
+ * @param silent - Optional silent mode to suppress toasts (default: false)
  */
-export async function openAllUrls(urls: string[], browser?: Browser) {
+export async function openAllUrls(urls: string[], browser?: Browser, silent = false) {
   if (urls.length === 0) {
-    await showToast({ style: Toast.Style.Failure, title: "No links to open" });
+    if (!silent) {
+      await showToast({ style: Toast.Style.Failure, title: "No links to open" });
+    }
     return;
   }
 
@@ -20,8 +23,10 @@ export async function openAllUrls(urls: string[], browser?: Browser) {
   const failed = results.filter((r) => r.status === "rejected").length;
   const opened = urls.length - failed;
 
-  await showToast({
-    style: failed > 0 ? Toast.Style.Failure : Toast.Style.Success,
-    title: `Opened ${opened}/${urls.length} links`,
-  });
+  if (!silent) {
+    await showToast({
+      style: failed > 0 ? Toast.Style.Failure : Toast.Style.Success,
+      title: `Opened ${opened}/${urls.length} links`,
+    });
+  }
 }

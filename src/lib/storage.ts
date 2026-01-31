@@ -179,20 +179,28 @@ export async function readDB(): Promise<LinkDB> {
 
   if (backupParsed.isValid && backupParsed.hadValue && backupRaw) {
     await LocalStorage.setItem(STORAGE_KEY, backupRaw);
-    await showToast({
-      style: Toast.Style.Failure,
-      title: "Data corrupted",
-      message: "Recovered from the last backup.",
-    });
+    try {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Data corrupted",
+        message: "Recovered from the last backup.",
+      });
+    } catch {
+      // Toast not available in background mode - silent recovery
+    }
     return backupParsed.db;
   }
 
   await LocalStorage.setItem(STORAGE_KEY, DEFAULT_DB_RAW);
-  await showToast({
-    style: Toast.Style.Failure,
-    title: "Data corrupted",
-    message: "Reset to an empty database.",
-  });
+  try {
+    await showToast({
+      style: Toast.Style.Failure,
+      title: "Data corrupted",
+      message: "Reset to an empty database.",
+    });
+  } catch {
+    // Toast not available in background mode - silent recovery
+  }
   return DEFAULT_DB;
 }
 
