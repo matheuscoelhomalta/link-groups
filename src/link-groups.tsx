@@ -1,6 +1,8 @@
 import {
   Action,
   ActionPanel,
+  Alert,
+  confirmAlert,
   Form,
   Icon,
   LaunchType,
@@ -19,24 +21,112 @@ import { openAllUrls } from "./lib/openAll";
 import GroupLinks from "./group-links";
 
 export default function LinkGroupsCommand() {
-  const { db, setDB, isLoading } = useLinkDB();
+  const { db, updateDB, isLoading } = useLinkDB();
   const groups = db.groups;
 
   async function addGroup(title: string, browser: Browser) {
     const next: LinkGroup = { id: randomUUID(), title, links: [], browser };
-    await setDB({ ...db, groups: [next, ...db.groups] });
+    try {
+      await updateDB((current) => ({
+        ...current,
+        groups: [next, ...current.groups],
+      }));
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to create group",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async function deleteGroup(groupId: string) {
-    await setDB({ ...db, groups: db.groups.filter((g) => g.id !== groupId) });
+    const group = db.groups.find((candidate) => candidate.id === groupId);
+    if (!group) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Group not found",
+      });
+      return;
+    }
+
+    const confirmed = await confirmAlert({
+      title: "Delete group?",
+      message: `This will delete "${group.title}" and ${group.links.length} link${group.links.length === 1 ? "" : "s"}.`,
+      primaryAction: {
+        title: "Delete Group",
+        style: Alert.ActionStyle.Destructive,
+      },
+    });
+
+    if (!confirmed) return;
+
+    try {
+      let deleted = false;
+      await updateDB((current) => {
+        if (!current.groups.some((candidate) => candidate.id === groupId)) {
+          return current;
+        }
+        deleted = true;
+        return {
+          ...current,
+          groups: current.groups.filter((g) => g.id !== groupId),
+        };
+      });
+
+      if (!deleted) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Group not found",
+        });
+        return;
+      }
+
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Group deleted",
+      });
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to delete group",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async function updateGroupBrowser(groupId: string, browser: Browser) {
-    const nextGroups = db.groups.map((g) => {
-      if (g.id !== groupId) return g;
-      return { ...g, browser };
-    });
-    await setDB({ ...db, groups: nextGroups });
+    try {
+      let updated = false;
+      await updateDB((current) => {
+        const nextGroups = current.groups.map((g) => {
+          if (g.id !== groupId) return g;
+          updated = true;
+          return { ...g, browser };
+        });
+        if (!updated) return current;
+        return { ...current, groups: nextGroups };
+      });
+
+      if (!updated) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Group not found",
+        });
+        return;
+      }
+
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Browser updated",
+      });
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to update browser",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   return (

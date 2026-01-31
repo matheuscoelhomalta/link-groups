@@ -1,11 +1,14 @@
-import { LocalStorage } from "@raycast/api";
+import { LocalStorage, showToast, Toast } from "@raycast/api";
 import { useLocalStorage } from "@raycast/utils";
+import { useEffect, useRef } from "react";
 import type { Browser, LinkDB, LinkGroup, LinkItem } from "./types";
 import { BROWSER_OPTIONS } from "./types";
 
 const STORAGE_KEY = "link-groups-db";
+const BACKUP_STORAGE_KEY = "link-groups-db-backup";
 
 const DEFAULT_DB: LinkDB = { version: 1, groups: [] };
+const DEFAULT_DB_RAW = JSON.stringify(DEFAULT_DB);
 
 const VALID_BROWSERS = new Set(BROWSER_OPTIONS.map((option) => option.value));
 
@@ -51,18 +54,21 @@ function normalizeGroup(value: unknown): LinkGroup | null {
   };
 }
 
-function safeParseDB(raw: string | undefined): LinkDB {
-  if (!raw) return DEFAULT_DB;
+type ParseResult = { db: LinkDB; isValid: boolean; hadValue: boolean };
+
+function parseDB(raw: string | undefined): ParseResult {
+  if (!raw) return { db: DEFAULT_DB, isValid: true, hadValue: false };
   try {
     const parsed = JSON.parse(raw) as { version?: unknown; groups?: unknown };
-    if (parsed?.version !== 1 || !Array.isArray(parsed.groups))
-      return DEFAULT_DB;
+    if (parsed?.version !== 1 || !Array.isArray(parsed.groups)) {
+      return { db: DEFAULT_DB, isValid: false, hadValue: true };
+    }
     const groups = parsed.groups
       .map(normalizeGroup)
       .filter(Boolean) as LinkGroup[];
-    return { version: 1, groups };
+    return { db: { version: 1, groups }, isValid: true, hadValue: true };
   } catch {
-    return DEFAULT_DB;
+    return { db: DEFAULT_DB, isValid: false, hadValue: true };
   }
 }
 
@@ -74,15 +80,90 @@ export function useLinkDB() {
     value: raw,
     setValue: setRaw,
     isLoading,
-  } = useLocalStorage<string>(STORAGE_KEY, JSON.stringify(DEFAULT_DB));
+  } = useLocalStorage<string>(STORAGE_KEY, DEFAULT_DB_RAW);
 
-  const db = safeParseDB(raw);
+  const parsed = parseDB(raw);
+  const db = parsed.db;
+
+  const rawRef = useRef(raw ?? DEFAULT_DB_RAW);
+  const queueRef = useRef(Promise.resolve());
+  const lastCorruptRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (raw !== undefined) {
+      rawRef.current = raw;
+    }
+  }, [raw]);
+
+  useEffect(() => {
+    if (!parsed.hadValue || parsed.isValid) return;
+    if (raw && lastCorruptRef.current === raw) return;
+    lastCorruptRef.current = raw ?? null;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const backupRaw =
+          await LocalStorage.getItem<string>(BACKUP_STORAGE_KEY);
+        const backupParsed = parseDB(backupRaw);
+        if (cancelled) return;
+
+        if (backupParsed.isValid && backupParsed.hadValue && backupRaw) {
+          await setRaw(backupRaw);
+          await showToast({
+            style: Toast.Style.Failure,
+            title: "Data corrupted",
+            message: "Recovered from the last backup.",
+          });
+          return;
+        }
+
+        await setRaw(DEFAULT_DB_RAW);
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Data corrupted",
+          message: "Reset to an empty database.",
+        });
+      } catch (error) {
+        if (cancelled) return;
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Failed to recover data",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [parsed.hadValue, parsed.isValid, raw, setRaw]);
 
   async function setDB(next: LinkDB) {
-    await setRaw(JSON.stringify(next));
+    await updateDB(() => next);
   }
 
-  return { db, setDB, isLoading };
+  async function updateDB(updater: (current: LinkDB) => LinkDB) {
+    const run = queueRef.current.then(async () => {
+      const currentRaw = rawRef.current ?? DEFAULT_DB_RAW;
+      const current = parseDB(currentRaw).db;
+      const next = updater(current);
+      const nextRaw = JSON.stringify(next);
+
+      if (currentRaw) {
+        await LocalStorage.setItem(BACKUP_STORAGE_KEY, currentRaw);
+      }
+
+      rawRef.current = nextRaw;
+      await setRaw(nextRaw);
+    });
+
+    queueRef.current = run.catch(() => {});
+    return run;
+  }
+
+  return { db, setDB, updateDB, isLoading };
 }
 
 /**
@@ -90,12 +171,40 @@ export function useLinkDB() {
  */
 export async function readDB(): Promise<LinkDB> {
   const raw = await LocalStorage.getItem<string>(STORAGE_KEY);
-  return safeParseDB(raw);
+  const parsed = parseDB(raw);
+  if (parsed.isValid || !parsed.hadValue) return parsed.db;
+
+  const backupRaw = await LocalStorage.getItem<string>(BACKUP_STORAGE_KEY);
+  const backupParsed = parseDB(backupRaw);
+
+  if (backupParsed.isValid && backupParsed.hadValue && backupRaw) {
+    await LocalStorage.setItem(STORAGE_KEY, backupRaw);
+    await showToast({
+      style: Toast.Style.Failure,
+      title: "Data corrupted",
+      message: "Recovered from the last backup.",
+    });
+    return backupParsed.db;
+  }
+
+  await LocalStorage.setItem(STORAGE_KEY, DEFAULT_DB_RAW);
+  await showToast({
+    style: Toast.Style.Failure,
+    title: "Data corrupted",
+    message: "Reset to an empty database.",
+  });
+  return DEFAULT_DB;
 }
 
 /**
  * Write database directly - for no-view commands
+ * Note: this bypasses the useLocalStorage cache, so avoid calling while UI commands are active.
  */
 export async function writeDB(db: LinkDB): Promise<void> {
-  await LocalStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  const raw = JSON.stringify(db);
+  const currentRaw = await LocalStorage.getItem<string>(STORAGE_KEY);
+  if (currentRaw) {
+    await LocalStorage.setItem(BACKUP_STORAGE_KEY, currentRaw);
+  }
+  await LocalStorage.setItem(STORAGE_KEY, raw);
 }

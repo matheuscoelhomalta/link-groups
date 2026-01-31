@@ -9,6 +9,7 @@ import {
   useNavigation,
 } from "@raycast/api";
 import { randomUUID } from "crypto";
+import { useEffect, useRef } from "react";
 
 import { useLinkDB } from "./lib/storage";
 import { openAllUrls } from "./lib/openAll";
@@ -43,41 +44,164 @@ function parseUrls(text: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-export default function GroupLinks(props: { groupId: string }) {
-  const { db, setDB, isLoading } = useLinkDB();
-  const group = db.groups.find((g) => g.id === props.groupId);
+function normalizeUrl(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
 
-  async function addLink(title: string, url: string) {
-    if (!group) return;
+function parseUrlsWithValidation(text: string): {
+  valid: string[];
+  invalid: string[];
+} {
+  const lines = parseUrls(text);
+  const valid: string[] = [];
+  const invalid: string[] = [];
 
-    const nextLink = { id: randomUUID(), title, url };
-
-    const nextGroups = db.groups.map((g) => {
-      if (g.id !== group.id) return g;
-      return { ...g, links: [nextLink, ...g.links] };
-    });
-
-    await setDB({ ...db, groups: nextGroups });
+  for (const line of lines) {
+    const normalized = normalizeUrl(line);
+    if (normalized) {
+      valid.push(normalized);
+    } else {
+      invalid.push(line);
+    }
   }
 
-  async function addLinks(links: LinkItem[]) {
-    if (!group || links.length === 0) return;
+  return { valid, invalid };
+}
 
-    const nextGroups = db.groups.map((g) => {
-      if (g.id !== group.id) return g;
-      return { ...g, links: [...links, ...g.links] };
+export default function GroupLinks(props: { groupId: string }) {
+  const { db, updateDB, isLoading } = useLinkDB();
+  const group = db.groups.find((g) => g.id === props.groupId);
+  const { pop } = useNavigation();
+  const missingNotifiedRef = useRef(false);
+
+  useEffect(() => {
+    if (isLoading || group) return;
+    if (missingNotifiedRef.current) return;
+    missingNotifiedRef.current = true;
+
+    void showToast({
+      style: Toast.Style.Failure,
+      title: "Group not found",
     });
+    pop();
+  }, [group, isLoading, pop]);
 
-    await setDB({ ...db, groups: nextGroups });
+  async function addLink(title: string, url: string) {
+    const normalized = normalizeUrl(url);
+    if (!normalized) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Invalid URL",
+        message: "Use a valid http(s) URL.",
+      });
+      return;
+    }
+
+    try {
+      let added = false;
+      await updateDB((current) => {
+        const nextLink = { id: randomUUID(), title, url: normalized };
+        const nextGroups = current.groups.map((g) => {
+          if (g.id !== props.groupId) return g;
+          added = true;
+          return { ...g, links: [nextLink, ...g.links] };
+        });
+        if (!added) return current;
+        return { ...current, groups: nextGroups };
+      });
+
+      if (!added) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Group not found",
+        });
+      }
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to add link",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async function addLinks(links: LinkItem[]): Promise<boolean> {
+    if (links.length === 0) return false;
+
+    try {
+      let added = false;
+      await updateDB((current) => {
+        const nextGroups = current.groups.map((g) => {
+          if (g.id !== props.groupId) return g;
+          added = true;
+          return { ...g, links: [...links, ...g.links] };
+        });
+        if (!added) return current;
+        return { ...current, groups: nextGroups };
+      });
+
+      if (!added) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Group not found",
+        });
+        return false;
+      }
+      return true;
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to import links",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
   }
 
   async function deleteLink(linkId: string) {
-    if (!group) return;
-    const nextGroups = db.groups.map((g) => {
-      if (g.id !== group.id) return g;
-      return { ...g, links: g.links.filter((l) => l.id !== linkId) };
-    });
-    await setDB({ ...db, groups: nextGroups });
+    try {
+      let deleted = false;
+      let foundGroup = false;
+      await updateDB((current) => {
+        const nextGroups = current.groups.map((g) => {
+          if (g.id !== props.groupId) return g;
+          foundGroup = true;
+          const nextLinks = g.links.filter((l) => l.id !== linkId);
+          if (nextLinks.length === g.links.length) return g;
+          deleted = true;
+          return { ...g, links: nextLinks };
+        });
+        if (!deleted) return current;
+        return { ...current, groups: nextGroups };
+      });
+
+      if (!deleted) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: foundGroup ? "Link not found" : "Group not found",
+        });
+        return;
+      }
+
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Link deleted",
+      });
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to delete link",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (!group) {
@@ -181,7 +305,18 @@ function AddLinkForm(props: {
                 });
                 return;
               }
-              await props.onCreate(title, url);
+
+              const normalized = normalizeUrl(url);
+              if (!normalized) {
+                await showToast({
+                  style: Toast.Style.Failure,
+                  title: "Invalid URL",
+                  message: "Use a valid http(s) URL.",
+                });
+                return;
+              }
+
+              await props.onCreate(title, normalized);
               pop();
             }}
           />
@@ -199,7 +334,9 @@ function AddLinkForm(props: {
   );
 }
 
-function BulkImportForm(props: { onImport: (links: LinkItem[]) => Promise<void> }) {
+function BulkImportForm(props: {
+  onImport: (links: LinkItem[]) => Promise<boolean>;
+}) {
   const { pop } = useNavigation();
 
   return (
@@ -218,8 +355,8 @@ function BulkImportForm(props: { onImport: (links: LinkItem[]) => Promise<void> 
                 return;
               }
 
-              const urls = parseUrls(text);
-              if (urls.length === 0) {
+              const { valid, invalid } = parseUrlsWithValidation(text);
+              if (valid.length === 0) {
                 await showToast({
                   style: Toast.Style.Failure,
                   title: "No valid URLs found",
@@ -227,16 +364,23 @@ function BulkImportForm(props: { onImport: (links: LinkItem[]) => Promise<void> 
                 return;
               }
 
-              const links: LinkItem[] = urls.map((url) => ({
+              const links: LinkItem[] = valid.map((url) => ({
                 id: randomUUID(),
                 title: titleFromUrl(url),
                 url,
               }));
 
-              await props.onImport(links);
+              const imported = await props.onImport(links);
+              if (!imported) {
+                return;
+              }
               await showToast({
                 style: Toast.Style.Success,
                 title: `Imported ${links.length} links`,
+                message:
+                  invalid.length > 0
+                    ? `Skipped ${invalid.length} invalid URL${invalid.length === 1 ? "" : "s"}.`
+                    : undefined,
               });
               pop();
             }}
