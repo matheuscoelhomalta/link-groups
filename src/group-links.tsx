@@ -16,7 +16,8 @@ import { useLinkGroupActions } from "./hooks/useLinkGroupActions";
 import { openAllUrls } from "./lib/openAll";
 
 export default function GroupLinks(props: { groupId: string }) {
-  const { isLoading, addLink, addLinks, deleteLink, getGroup } = useLinkGroupActions();
+  const { isLoading, addLink, addLinks, deleteLink, getGroup } =
+    useLinkGroupActions();
   const group = getGroup(props.groupId);
   const { pop } = useNavigation();
   const missingNotifiedRef = useRef(false);
@@ -58,7 +59,7 @@ export default function GroupLinks(props: { groupId: string }) {
               }
             />
             <Action.Push
-              title="Bulk Import URLs"
+              title="Bulk Import Urls"
               icon={Icon.Document}
               target={
                 <BulkImportForm
@@ -110,7 +111,7 @@ export default function GroupLinks(props: { groupId: string }) {
                   }
                 />
                 <Action.Push
-                  title="Bulk Import URLs"
+                  title="Bulk Import Urls"
                   icon={Icon.Document}
                   shortcut={{ modifiers: ["cmd", "shift"], key: "i" }}
                   target={

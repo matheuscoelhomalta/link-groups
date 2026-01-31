@@ -17,22 +17,25 @@ export function useLinkGroupActions() {
     return db.groups.find((group) => group.id === groupId);
   }
 
-  async function addGroup(title: string, browser: Browser = ""): Promise<LinkGroup> {
+  async function addGroup(
+    title: string,
+    browser: Browser = "",
+  ): Promise<LinkGroup | null> {
     const next: LinkGroup = { id: randomUUID(), title, links: [], browser };
     try {
       await updateDB((current) => ({
         ...current,
         groups: [next, ...current.groups],
       }));
+      return next;
     } catch (error) {
       await showToast({
         style: Toast.Style.Failure,
         title: "Failed to create group",
         message: error instanceof Error ? error.message : String(error),
       });
+      return null;
     }
-
-    return next;
   }
 
   async function deleteGroup(groupId: string): Promise<boolean> {
@@ -65,7 +68,9 @@ export function useLinkGroupActions() {
         deleted = true;
         return {
           ...current,
-          groups: current.groups.filter((groupItem) => groupItem.id !== groupId),
+          groups: current.groups.filter(
+            (groupItem) => groupItem.id !== groupId,
+          ),
         };
       });
 
@@ -92,7 +97,10 @@ export function useLinkGroupActions() {
     }
   }
 
-  async function updateGroupBrowser(groupId: string, browser: Browser): Promise<boolean> {
+  async function updateGroupBrowser(
+    groupId: string,
+    browser: Browser,
+  ): Promise<boolean> {
     try {
       let updated = false;
       await updateDB((current) => {
@@ -128,7 +136,11 @@ export function useLinkGroupActions() {
     }
   }
 
-  async function addLink(groupId: string, title: string, url: string): Promise<boolean> {
+  async function addLink(
+    groupId: string,
+    title: string,
+    url: string,
+  ): Promise<boolean> {
     const normalized = normalizeUrl(url);
     if (!normalized) {
       await showToast({
@@ -171,7 +183,10 @@ export function useLinkGroupActions() {
     }
   }
 
-  async function addLinks(groupId: string, urls: string[]): Promise<AddLinksResult> {
+  async function addLinks(
+    groupId: string,
+    urls: string[],
+  ): Promise<AddLinksResult> {
     if (urls.length === 0) return { added: 0, failed: 0 };
 
     const links: LinkItem[] = urls.map((url) => ({

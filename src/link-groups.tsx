@@ -1,10 +1,4 @@
-import {
-  Action,
-  ActionPanel,
-  Icon,
-  LaunchType,
-  List,
-} from "@raycast/api";
+import { Action, ActionPanel, Icon, LaunchType, List } from "@raycast/api";
 import { createDeeplink, DeeplinkType } from "@raycast/utils";
 
 import AddGroupForm from "./components/AddGroupForm";
@@ -15,7 +9,8 @@ import { openAllUrls } from "./lib/openAll";
 import { getBrowserLabel } from "./lib/types";
 
 export default function LinkGroupsCommand() {
-  const { groups, isLoading, addGroup, deleteGroup, updateGroupBrowser } = useLinkGroupActions();
+  const { groups, isLoading, addGroup, deleteGroup, updateGroupBrowser } =
+    useLinkGroupActions();
 
   return (
     <List isLoading={isLoading} searchBarPlaceholder="Search groups…">

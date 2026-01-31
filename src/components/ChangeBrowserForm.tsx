@@ -5,10 +5,13 @@ import { BROWSER_OPTIONS } from "../lib/types";
 
 type ChangeBrowserFormProps = {
   currentBrowser: Browser;
-  onSubmit: (browser: Browser) => Promise<unknown>;
+  onSubmit: (browser: Browser) => Promise<boolean>;
 };
 
-export default function ChangeBrowserForm({ currentBrowser, onSubmit }: ChangeBrowserFormProps) {
+export default function ChangeBrowserForm({
+  currentBrowser,
+  onSubmit,
+}: ChangeBrowserFormProps) {
   const { pop } = useNavigation();
 
   return (
@@ -18,8 +21,10 @@ export default function ChangeBrowserForm({ currentBrowser, onSubmit }: ChangeBr
           <Action.SubmitForm
             title="Save Browser"
             onSubmit={async (values) => {
-              await onSubmit((values.browser as Browser) || "");
-              pop();
+              const success = await onSubmit((values.browser as Browser) || "");
+              if (success) {
+                pop();
+              }
             }}
           />
         </ActionPanel>

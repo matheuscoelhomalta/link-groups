@@ -1,10 +1,17 @@
-import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  Form,
+  showToast,
+  Toast,
+  useNavigation,
+} from "@raycast/api";
 
 import type { Browser } from "../lib/types";
 import { BROWSER_OPTIONS } from "../lib/types";
 
 type AddGroupFormProps = {
-  onCreate: (title: string, browser: Browser) => Promise<unknown>;
+  onCreate: (title: string, browser: Browser) => Promise<unknown | null>;
 };
 
 export default function AddGroupForm({ onCreate }: AddGroupFormProps) {
@@ -25,8 +32,13 @@ export default function AddGroupForm({ onCreate }: AddGroupFormProps) {
                 });
                 return;
               }
-              await onCreate(title, (values.browser as Browser) || "");
-              pop();
+              const result = await onCreate(
+                title,
+                (values.browser as Browser) || "",
+              );
+              if (result !== null) {
+                pop();
+              }
             }}
           />
         </ActionPanel>

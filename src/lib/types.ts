@@ -5,7 +5,15 @@ export type LinkItem = {
 };
 
 /** Supported browsers - empty string means system default */
-export type Browser = "" | "com.apple.Safari" | "com.google.Chrome" | "com.vivaldi.Vivaldi" | "com.brave.Browser" | "org.mozilla.firefox" | "company.thebrowser.Browser" | "com.microsoft.edgemac";
+export type Browser =
+  | ""
+  | "com.apple.Safari"
+  | "com.google.Chrome"
+  | "com.vivaldi.Vivaldi"
+  | "com.brave.Browser"
+  | "org.mozilla.firefox"
+  | "company.thebrowser.Browser"
+  | "com.microsoft.edgemac";
 
 export const BROWSER_OPTIONS: { value: Browser; title: string }[] = [
   { value: "", title: "System Default" },
@@ -20,7 +28,10 @@ export const BROWSER_OPTIONS: { value: Browser; title: string }[] = [
 
 export function getBrowserLabel(bundleId?: Browser): string {
   if (!bundleId) return "System Default";
-  return BROWSER_OPTIONS.find((option) => option.value === bundleId)?.title ?? "System Default";
+  return (
+    BROWSER_OPTIONS.find((option) => option.value === bundleId)?.title ??
+    "System Default"
+  );
 }
 
 export type LinkGroup = {

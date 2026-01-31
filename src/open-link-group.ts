@@ -24,9 +24,17 @@ export default async function OpenLinkGroupCommand(
     return;
   }
 
-  await openAllUrls(
+  const result = await openAllUrls(
     group.links.map((l) => l.url),
     group.browser,
     true,
   );
+
+  if (result.failed > 0) {
+    await showHUD(`Opened ${result.opened}/${result.total} links`);
+  } else {
+    await showHUD(
+      `Opened ${result.opened} link${result.opened === 1 ? "" : "s"}`,
+    );
+  }
 }

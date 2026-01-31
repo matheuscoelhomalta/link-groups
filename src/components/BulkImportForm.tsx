@@ -1,4 +1,11 @@
-import { Action, ActionPanel, Form, showToast, Toast, useNavigation } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  Form,
+  showToast,
+  Toast,
+  useNavigation,
+} from "@raycast/api";
 
 import { parseUrlsWithValidation } from "../lib/url-utils";
 
@@ -19,7 +26,7 @@ export default function BulkImportForm({ onImport }: BulkImportFormProps) {
       actions={
         <ActionPanel>
           <Action.SubmitForm
-            title="Import URLs"
+            title="Import Urls"
             onSubmit={async (values) => {
               const text = String(values.urls ?? "").trim();
               if (!text) {
