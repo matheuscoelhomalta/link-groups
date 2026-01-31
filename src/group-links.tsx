@@ -60,7 +60,7 @@ export default function GroupLinks(props: { groupId: string }) {
               }
             />
             <Action.Push
-              title="Bulk Import URLs"
+              title="Bulk Import Urls"
               icon={Icon.Document}
               target={
                 <BulkImportForm
@@ -112,7 +112,7 @@ export default function GroupLinks(props: { groupId: string }) {
                   }
                 />
                 <Action.Push
-                  title="Bulk Import URLs"
+                  title="Bulk Import Urls"
                   icon={Icon.Document}
                   shortcut={{ modifiers: ["cmd", "shift"], key: "i" }}
                   target={
