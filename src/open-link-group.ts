@@ -1,4 +1,4 @@
-import { LaunchProps } from "@raycast/api";
+import { LaunchProps, showHUD } from "@raycast/api";
 import { readDB } from "./lib/storage";
 import { openAllUrls } from "./lib/openAll";
 
@@ -15,7 +15,7 @@ export default async function OpenLinkGroupCommand(
   const group = db.groups.find((g) => g.id === groupId);
 
   if (!group) {
-    // Silent failure - Toast API not available in background mode
+    await showHUD("Group not found");
     return;
   }
 

@@ -7,7 +7,8 @@ import { BROWSER_OPTIONS } from "./types";
 const STORAGE_KEY = "link-groups-db";
 const BACKUP_STORAGE_KEY = "link-groups-db-backup";
 
-const DEFAULT_DB: LinkDB = { version: 1, groups: [] };
+const CURRENT_DB_VERSION = 1;
+const DEFAULT_DB: LinkDB = { version: CURRENT_DB_VERSION, groups: [] };
 const DEFAULT_DB_RAW = JSON.stringify(DEFAULT_DB);
 
 const VALID_BROWSERS = new Set(BROWSER_OPTIONS.map((option) => option.value));
@@ -59,14 +60,25 @@ type ParseResult = { db: LinkDB; isValid: boolean; hadValue: boolean };
 function parseDB(raw: string | undefined): ParseResult {
   if (!raw) return { db: DEFAULT_DB, isValid: true, hadValue: false };
   try {
-    const parsed = JSON.parse(raw) as { version?: unknown; groups?: unknown };
-    if (parsed?.version !== 1 || !Array.isArray(parsed.groups)) {
+    const parsedValue = JSON.parse(raw) as unknown;
+    const parsed =
+      typeof parsedValue === "string"
+        ? (JSON.parse(parsedValue) as unknown)
+        : parsedValue;
+    if (!isRecord(parsed)) {
+      return { db: DEFAULT_DB, isValid: false, hadValue: true };
+    }
+    if (typeof parsed.version !== "number" || !Array.isArray(parsed.groups)) {
       return { db: DEFAULT_DB, isValid: false, hadValue: true };
     }
     const groups = parsed.groups
       .map(normalizeGroup)
       .filter(Boolean) as LinkGroup[];
-    return { db: { version: 1, groups }, isValid: true, hadValue: true };
+    return {
+      db: { version: CURRENT_DB_VERSION, groups },
+      isValid: true,
+      hadValue: true,
+    };
   } catch {
     return { db: DEFAULT_DB, isValid: false, hadValue: true };
   }
@@ -85,15 +97,8 @@ export function useLinkDB() {
   const parsed = parseDB(raw);
   const db = parsed.db;
 
-  const rawRef = useRef(raw ?? DEFAULT_DB_RAW);
   const queueRef = useRef(Promise.resolve());
   const lastCorruptRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (raw !== undefined) {
-      rawRef.current = raw;
-    }
-  }, [raw]);
 
   useEffect(() => {
     if (!parsed.hadValue || parsed.isValid) return;
@@ -146,7 +151,8 @@ export function useLinkDB() {
 
   async function updateDB(updater: (current: LinkDB) => LinkDB) {
     const run = queueRef.current.then(async () => {
-      const currentRaw = rawRef.current ?? DEFAULT_DB_RAW;
+      const currentRaw =
+        (await LocalStorage.getItem<string>(STORAGE_KEY)) ?? DEFAULT_DB_RAW;
       const current = parseDB(currentRaw).db;
       const next = updater(current);
       const nextRaw = JSON.stringify(next);
@@ -155,7 +161,6 @@ export function useLinkDB() {
         await LocalStorage.setItem(BACKUP_STORAGE_KEY, currentRaw);
       }
 
-      rawRef.current = nextRaw;
       await setRaw(nextRaw);
     });
 
