@@ -3,6 +3,7 @@ import {
   ActionPanel,
   Icon,
   List,
+  open,
   showToast,
   Toast,
   useNavigation,
@@ -77,7 +78,11 @@ export default function GroupLinks(props: { groupId: string }) {
           icon={Icon.Link}
           actions={
             <ActionPanel>
-              <Action.OpenInBrowser url={link.url} />
+              <Action
+                title="Open in Browser"
+                icon={Icon.Globe}
+                onAction={() => open(link.url, group.browser || undefined)}
+              />
               <Action.CopyToClipboard title="Copy URL" content={link.url} />
 
               <ActionPanel.Section>

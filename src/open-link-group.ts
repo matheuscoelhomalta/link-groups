@@ -19,6 +19,11 @@ export default async function OpenLinkGroupCommand(
     return;
   }
 
+  if (group.links.length === 0) {
+    await showHUD("Group is empty");
+    return;
+  }
+
   await openAllUrls(
     group.links.map((l) => l.url),
     group.browser,
