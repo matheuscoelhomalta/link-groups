@@ -12,11 +12,12 @@ import { useEffect, useRef } from "react";
 
 import AddLinkForm from "./components/AddLinkForm";
 import BulkImportForm from "./components/BulkImportForm";
+import EditLinksForm from "./components/EditLinksForm";
 import { useLinkGroupActions } from "./hooks/useLinkGroupActions";
 import { openAllUrls } from "./lib/openAll";
 
 export default function GroupLinks(props: { groupId: string }) {
-  const { isLoading, addLink, addLinks, deleteLink, getGroup } =
+  const { isLoading, addLink, addLinks, deleteLink, editLinks, getGroup } =
     useLinkGroupActions();
   const group = getGroup(props.groupId);
   const { pop } = useNavigation();
@@ -117,6 +118,19 @@ export default function GroupLinks(props: { groupId: string }) {
                   target={
                     <BulkImportForm
                       onImport={(urls) => addLinks(props.groupId, urls)}
+                    />
+                  }
+                />
+                <Action.Push
+                  title="Edit Links"
+                  icon={Icon.Pencil}
+                  shortcut={{ modifiers: ["cmd"], key: "e" }}
+                  target={
+                    <EditLinksForm
+                      links={group.links}
+                      onSave={(keepUrls, addUrls) =>
+                        editLinks(props.groupId, keepUrls, addUrls)
+                      }
                     />
                   }
                 />

@@ -136,6 +136,46 @@ export function useLinkGroupActions() {
     }
   }
 
+  async function updateGroup(
+    groupId: string,
+    title: string,
+    browser: Browser,
+  ): Promise<boolean> {
+    try {
+      let updated = false;
+      await updateDB((current) => {
+        const nextGroups = current.groups.map((group) => {
+          if (group.id !== groupId) return group;
+          updated = true;
+          return { ...group, title, browser };
+        });
+        if (!updated) return current;
+        return { ...current, groups: nextGroups };
+      });
+
+      if (!updated) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Group not found",
+        });
+        return false;
+      }
+
+      await showToast({
+        style: Toast.Style.Success,
+        title: "Group updated",
+      });
+      return true;
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to update group",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
   async function addLink(
     groupId: string,
     title: string,
@@ -266,16 +306,64 @@ export function useLinkGroupActions() {
     }
   }
 
+  async function editLinks(
+    groupId: string,
+    keepUrls: string[],
+    addUrls: string[],
+  ): Promise<{ removed: number; added: number }> {
+    const keepSet = new Set(keepUrls);
+    const newLinks: LinkItem[] = addUrls.map((url) => ({
+      id: randomUUID(),
+      title: titleFromUrl(url),
+      url,
+    }));
+
+    try {
+      let removed = 0;
+      let foundGroup = false;
+      await updateDB((current) => {
+        const nextGroups = current.groups.map((group) => {
+          if (group.id !== groupId) return group;
+          foundGroup = true;
+          const keptLinks = group.links.filter((link) => keepSet.has(link.url));
+          removed = group.links.length - keptLinks.length;
+          return { ...group, links: [...newLinks, ...keptLinks] };
+        });
+        if (!foundGroup) return current;
+        return { ...current, groups: nextGroups };
+      });
+
+      if (!foundGroup) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Group not found",
+        });
+        return { removed: 0, added: 0 };
+      }
+
+      return { removed, added: newLinks.length };
+    } catch (error) {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to edit links",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return { removed: 0, added: 0 };
+    }
+  }
+
   return {
     db,
     isLoading,
     groups: db.groups,
     addGroup,
     deleteGroup,
+    updateGroup,
     updateGroupBrowser,
     addLink,
     addLinks,
     deleteLink,
+    editLinks,
     getGroup,
   };
 }

@@ -3,14 +3,21 @@ import { createDeeplink, DeeplinkType } from "@raycast/utils";
 
 import AddGroupForm from "./components/AddGroupForm";
 import ChangeBrowserForm from "./components/ChangeBrowserForm";
+import EditGroupForm from "./components/EditGroupForm";
 import GroupLinks from "./group-links";
 import { useLinkGroupActions } from "./hooks/useLinkGroupActions";
 import { openAllUrls } from "./lib/openAll";
 import { getBrowserLabel } from "./lib/types";
 
 export default function LinkGroupsCommand() {
-  const { groups, isLoading, addGroup, deleteGroup, updateGroupBrowser } =
-    useLinkGroupActions();
+  const {
+    groups,
+    isLoading,
+    addGroup,
+    deleteGroup,
+    updateGroup,
+    updateGroupBrowser,
+  } = useLinkGroupActions();
 
   return (
     <List isLoading={isLoading} searchBarPlaceholder="Search groups…">
@@ -73,6 +80,14 @@ export default function LinkGroupsCommand() {
                 />
 
                 <ActionPanel.Section title="Edit">
+                  <Action.Push
+                    title="Edit Group"
+                    icon={Icon.Pencil}
+                    shortcut={{ modifiers: ["cmd"], key: "e" }}
+                    target={
+                      <EditGroupForm group={group} onUpdate={updateGroup} />
+                    }
+                  />
                   <Action.Push
                     title="Change Browser"
                     icon={Icon.Globe}
