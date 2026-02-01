@@ -30,18 +30,18 @@ export default function EditLinksForm({ links, onSave }: EditLinksFormProps) {
           <Action.SubmitForm
             title="Save Changes"
             onSubmit={async (values) => {
-              const text = String(values.urls ?? "").trim();
+              const text = (values.urls ?? "").trim();
 
               const newUrls = text
                 .split("\n")
-                .map((line) => line.trim())
+                .map((line: string) => line.trim())
                 .filter(Boolean)
-                .map((url) => normalizeUrl(url))
-                .filter((url): url is string => url !== null);
+                .map((url: string) => normalizeUrl(url))
+                .filter((url: string | null): url is string => url !== null);
 
               const originalUrls = new Set(links.map((link) => link.url));
-              const keepUrls = newUrls.filter((url) => originalUrls.has(url));
-              const addUrls = newUrls.filter((url) => !originalUrls.has(url));
+              const keepUrls = newUrls.filter((url: string) => originalUrls.has(url));
+              const addUrls = newUrls.filter((url: string) => !originalUrls.has(url));
 
               const result = await onSave(keepUrls, addUrls);
 

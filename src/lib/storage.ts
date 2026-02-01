@@ -84,9 +84,6 @@ function parseDB(raw: string | undefined): ParseResult {
   }
 }
 
-/**
- * React hook for UI commands - provides reactive state with loading indicator
- */
 export function useLinkDB() {
   const {
     value: raw,
@@ -171,9 +168,6 @@ export function useLinkDB() {
   return { db, setDB, updateDB, isLoading };
 }
 
-/**
- * Read database directly - for no-view commands
- */
 export async function readDB(): Promise<LinkDB> {
   const raw = await LocalStorage.getItem<string>(STORAGE_KEY);
   const parsed = parseDB(raw);
@@ -209,10 +203,6 @@ export async function readDB(): Promise<LinkDB> {
   return DEFAULT_DB;
 }
 
-/**
- * Write database directly - for no-view commands
- * Note: this bypasses the useLocalStorage cache, so avoid calling while UI commands are active.
- */
 export async function writeDB(db: LinkDB): Promise<void> {
   const raw = JSON.stringify(db);
   const currentRaw = await LocalStorage.getItem<string>(STORAGE_KEY);

@@ -24,7 +24,7 @@ export default function AddGroupForm({ onCreate }: AddGroupFormProps) {
           <Action.SubmitForm
             title="Create Group"
             onSubmit={async (values) => {
-              const title = String(values.title ?? "").trim();
+              const title = (values.title ?? "").trim();
               if (!title) {
                 await showToast({
                   style: Toast.Style.Failure,
@@ -32,10 +32,7 @@ export default function AddGroupForm({ onCreate }: AddGroupFormProps) {
                 });
                 return;
               }
-              const result = await onCreate(
-                title,
-                (values.browser as Browser) || "",
-              );
+              const result = await onCreate(title, values.browser);
               if (result !== null) {
                 pop();
               }

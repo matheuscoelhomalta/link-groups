@@ -21,8 +21,8 @@ export default function AddLinkForm({ onCreate }: AddLinkFormProps) {
           <Action.SubmitForm
             title="Add Link"
             onSubmit={async (values) => {
-              const title = String(values.title ?? "").trim();
-              const url = String(values.url ?? "").trim();
+              const title = (values.title ?? "").trim();
+              const url = (values.url ?? "").trim();
               if (!title || !url) {
                 await showToast({
                   style: Toast.Style.Failure,

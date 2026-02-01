@@ -29,7 +29,7 @@ export default function EditGroupForm({ group, onUpdate }: EditGroupFormProps) {
           <Action.SubmitForm
             title="Save Changes"
             onSubmit={async (values) => {
-              const title = String(values.title ?? "").trim();
+              const title = (values.title ?? "").trim();
               if (!title) {
                 await showToast({
                   style: Toast.Style.Failure,
@@ -37,11 +37,7 @@ export default function EditGroupForm({ group, onUpdate }: EditGroupFormProps) {
                 });
                 return;
               }
-              const success = await onUpdate(
-                group.id,
-                title,
-                (values.browser as Browser) || "",
-              );
+              const success = await onUpdate(group.id, title, values.browser);
               if (success) {
                 pop();
               }

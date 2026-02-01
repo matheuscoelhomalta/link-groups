@@ -4,11 +4,8 @@ import {
   Icon,
   List,
   open,
-  showToast,
-  Toast,
   useNavigation,
 } from "@raycast/api";
-import { useEffect, useRef } from "react";
 
 import AddLinkForm from "./components/AddLinkForm";
 import BulkImportForm from "./components/BulkImportForm";
@@ -20,20 +17,6 @@ export default function GroupLinks(props: { groupId: string }) {
   const { isLoading, addLink, addLinks, deleteLink, editLinks, getGroup } =
     useLinkGroupActions();
   const group = getGroup(props.groupId);
-  const { pop } = useNavigation();
-  const missingNotifiedRef = useRef(false);
-
-  useEffect(() => {
-    if (isLoading || group) return;
-    if (missingNotifiedRef.current) return;
-    missingNotifiedRef.current = true;
-
-    void showToast({
-      style: Toast.Style.Failure,
-      title: "Group not found",
-    });
-    pop();
-  }, [group, isLoading, pop]);
 
   if (!group) {
     return <List isLoading={isLoading} searchBarPlaceholder="Search…" />;

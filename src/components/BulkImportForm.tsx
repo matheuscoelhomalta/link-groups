@@ -28,7 +28,7 @@ export default function BulkImportForm({ onImport }: BulkImportFormProps) {
           <Action.SubmitForm
             title="Import Urls"
             onSubmit={async (values) => {
-              const text = String(values.urls ?? "").trim();
+              const text = (values.urls ?? "").trim();
               if (!text) {
                 await showToast({
                   style: Toast.Style.Failure,

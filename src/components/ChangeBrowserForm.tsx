@@ -21,7 +21,7 @@ export default function ChangeBrowserForm({
           <Action.SubmitForm
             title="Save Browser"
             onSubmit={async (values) => {
-              const success = await onSubmit((values.browser as Browser) || "");
+              const success = await onSubmit(values.browser);
               if (success) {
                 pop();
               }
