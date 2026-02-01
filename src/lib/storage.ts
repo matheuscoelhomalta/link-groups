@@ -1,6 +1,6 @@
 import { LocalStorage, showToast, Toast } from "@raycast/api";
 import { useLocalStorage } from "@raycast/utils";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Browser, LinkDB, LinkGroup, LinkItem } from "./types";
 import { BROWSER_OPTIONS } from "./types";
 
@@ -12,6 +12,17 @@ const DEFAULT_DB: LinkDB = { version: CURRENT_DB_VERSION, groups: [] };
 const DEFAULT_DB_RAW = JSON.stringify(DEFAULT_DB);
 
 const VALID_BROWSERS = new Set(BROWSER_OPTIONS.map((option) => option.value));
+
+let liveDb: LinkDB = DEFAULT_DB;
+const dbListeners = new Set<(db: LinkDB) => void>();
+
+function setLiveDb(next: LinkDB) {
+  if (liveDb === next) return;
+  liveDb = next;
+  for (const listener of dbListeners) {
+    listener(next);
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -91,11 +102,24 @@ export function useLinkDB() {
     isLoading,
   } = useLocalStorage<string>(STORAGE_KEY, DEFAULT_DB_RAW);
 
-  const parsed = parseDB(raw);
-  const db = parsed.db;
+  const parsed = useMemo(() => parseDB(raw), [raw]);
+  const [db, setDb] = useState<LinkDB>(() =>
+    liveDb === DEFAULT_DB ? parsed.db : liveDb,
+  );
 
   const queueRef = useRef(Promise.resolve());
   const lastCorruptRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    dbListeners.add(setDb);
+    return () => {
+      dbListeners.delete(setDb);
+    };
+  }, []);
+
+  useEffect(() => {
+    setLiveDb(parsed.db);
+  }, [parsed.db]);
 
   useEffect(() => {
     if (!parsed.hadValue || parsed.isValid) return;
