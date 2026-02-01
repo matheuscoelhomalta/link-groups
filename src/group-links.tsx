@@ -65,18 +65,12 @@ export default function GroupLinks(props: { groupId: string }) {
             <Action.Push
               title="Add Link"
               icon={Icon.Plus}
-              target={
-                <AddLinkForm
-                  onCreate={handleAddLink}
-                />
-              }
+              target={<AddLinkForm onCreate={handleAddLink} />}
             />
             <Action.Push
               title="Bulk Import Urls"
               icon={Icon.Document}
-              target={
-                <BulkImportForm onImport={handleAddLinks} />
-              }
+              target={<BulkImportForm onImport={handleAddLinks} />}
             />
           </ActionPanel>
         }
@@ -113,19 +107,13 @@ export default function GroupLinks(props: { groupId: string }) {
                   title="Add Link"
                   icon={Icon.Plus}
                   shortcut={{ modifiers: ["cmd"], key: "n" }}
-                  target={
-                    <AddLinkForm
-                      onCreate={handleAddLink}
-                    />
-                  }
+                  target={<AddLinkForm onCreate={handleAddLink} />}
                 />
                 <Action.Push
                   title="Bulk Import Urls"
                   icon={Icon.Document}
                   shortcut={{ modifiers: ["cmd", "shift"], key: "i" }}
-                  target={
-                    <BulkImportForm onImport={handleAddLinks} />
-                  }
+                  target={<BulkImportForm onImport={handleAddLinks} />}
                 />
                 <Action.Push
                   title="Edit Links"
