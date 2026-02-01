@@ -2,9 +2,8 @@ import { LaunchProps, showHUD } from "@raycast/api";
 import { readDB } from "./lib/storage";
 import { openAllUrls } from "./lib/openAll";
 
-interface Arguments {
-  groupId: string;
-}
+export default async function OpenLinkGroupCommand(
+  props: LaunchProps<{ arguments: Arguments }>,
 
 export default async function OpenLinkGroupCommand(
   props: LaunchProps<{ arguments: Arguments }>,
