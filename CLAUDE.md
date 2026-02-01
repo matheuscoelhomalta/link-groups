@@ -31,22 +31,25 @@ The extension exposes two Raycast commands defined in package.json:
 
 **Storage Layer** (`src/lib/storage.ts`):
 - All data is persisted in Raycast's LocalStorage under the key `link-groups-db`
-- `useLinkDB()` hook - For React components (view commands). Provides reactive state with `isLoading` indicator
+- Automatic backup to `link-groups-db-backup` before each write for corruption recovery
+- `useLinkDB()` hook - For React components (view commands). Provides reactive state with `isLoading` indicator. Uses a module-level `liveDb` variable with listeners to sync state across multiple hook instances
 - `readDB()` / `writeDB()` functions - For no-view commands. Direct async read/write without reactive state
 - Data structure: `LinkDB` with version field and array of `LinkGroup` objects
-- Safe parsing with fallback to DEFAULT_DB if corrupted
+- Safe parsing with fallback to DEFAULT_DB if corrupted; attempts backup recovery first
 
 **Component Hierarchy**:
 ```
 link-groups.tsx (main command)
 ├── LinkGroupsCommand - List view of all groups
 │   ├── AddGroupForm - Create new group
+│   ├── EditGroupForm - Edit group title and browser
 │   └── ChangeBrowserForm - Change group's default browser
 │
 group-links.tsx (pushed from LinkGroupsCommand)
 ├── GroupLinks - List view of links within a group
 │   ├── AddLinkForm - Add link to group
-│   └── BulkImportForm - Bulk import URLs
+│   ├── BulkImportForm - Bulk import URLs
+│   └── EditLinksForm - Bulk edit/remove links
 │
 open-link-group.ts (no-view command)
 └── OpenLinkGroupCommand - Opens all links in a group (triggered via deeplink)
@@ -57,8 +60,9 @@ open-link-group.ts (no-view command)
 **State Management**:
 - No global state library (Redux, Zustand, etc.)
 - All state managed through `useLinkDB()` hook which wraps Raycast's `useLocalStorage`
-- UI commands call into `useLinkGroupActions()` in `src/hooks/useLinkGroupActions.ts` to keep business logic out of components
+- UI commands call into `useLinkGroupActions()` in `src/hooks/useLinkGroupActions.ts` to keep business logic out of components. Actions include: `addGroup`, `deleteGroup`, `updateGroup`, `updateGroupBrowser`, `addLink`, `addLinks`, `deleteLink`, `editLinks`
 - Updates are immutable - map over arrays to create new objects rather than mutating
+- Write operations use a queue (`queueRef`) to serialize concurrent updates and prevent race conditions
 
 **ID Generation**:
 - Both groups and links use `randomUUID()` from Node's `crypto` module
@@ -95,7 +99,7 @@ All types are defined in `src/lib/types.ts`:
 
 ## Important Notes
 
-- This extension uses TypeScript with strict mode enabled
+- TypeScript with strict mode, targeting ES2023
 - Module system is NodeNext (ESM)
 - JSX runtime is automatic (react-jsx)
 - All browser bundle IDs must match macOS application bundle identifiers
