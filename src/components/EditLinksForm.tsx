@@ -40,8 +40,12 @@ export default function EditLinksForm({ links, onSave }: EditLinksFormProps) {
                 .filter((url: string | null): url is string => url !== null);
 
               const originalUrls = new Set(links.map((link) => link.url));
-              const keepUrls = newUrls.filter((url: string) => originalUrls.has(url));
-              const addUrls = newUrls.filter((url: string) => !originalUrls.has(url));
+              const keepUrls = newUrls.filter((url: string) =>
+                originalUrls.has(url),
+              );
+              const addUrls = newUrls.filter(
+                (url: string) => !originalUrls.has(url),
+              );
 
               const result = await onSave(keepUrls, addUrls);
 

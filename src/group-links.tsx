@@ -1,11 +1,4 @@
-import {
-  Action,
-  ActionPanel,
-  Icon,
-  List,
-  open,
-  useNavigation,
-} from "@raycast/api";
+import { Action, ActionPanel, Icon, List, open } from "@raycast/api";
 
 import AddLinkForm from "./components/AddLinkForm";
 import BulkImportForm from "./components/BulkImportForm";
