@@ -3,6 +3,7 @@ import { createDeeplink, DeeplinkType } from "@raycast/utils";
 
 import AddGroupForm from "./components/AddGroupForm";
 import ChangeBrowserForm from "./components/ChangeBrowserForm";
+import DataTransferActions from "./components/DataTransferActions";
 import EditGroupForm from "./components/EditGroupForm";
 import GroupLinks from "./group-links";
 import { useLinkGroupActions } from "./hooks/useLinkGroupActions";
@@ -17,6 +18,8 @@ export default function LinkGroupsCommand() {
     deleteGroup,
     updateGroup,
     updateGroupBrowser,
+    db,
+    importData,
   } = useLinkGroupActions();
 
   return (
@@ -31,6 +34,7 @@ export default function LinkGroupsCommand() {
               icon={Icon.Plus}
               target={<AddGroupForm onCreate={addGroup} />}
             />
+            <DataTransferActions db={db} onImport={importData} />
           </ActionPanel>
         }
       />
@@ -118,6 +122,8 @@ export default function LinkGroupsCommand() {
                     onAction={() => deleteGroup(group.id)}
                   />
                 </ActionPanel.Section>
+
+                <DataTransferActions db={db} onImport={importData} />
               </ActionPanel>
             }
           />

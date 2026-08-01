@@ -95,6 +95,35 @@ function parseDB(raw: string | undefined): ParseResult {
   }
 }
 
+export function parseImportedDB(raw: string): LinkDB {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw) as unknown;
+  } catch {
+    throw new Error("The selected file is not a valid Link Groups backup.");
+  }
+
+  if (
+    !isRecord(value) ||
+    value.version !== CURRENT_DB_VERSION ||
+    !Array.isArray(value.groups)
+  ) {
+    throw new Error("The selected file is not a valid Link Groups backup.");
+  }
+
+  const groups = value.groups.map((group) => {
+    if (!isRecord(group) || !Array.isArray(group.links)) return null;
+    if (group.links.some((link) => normalizeLink(link) === null)) return null;
+    return normalizeGroup(group);
+  });
+
+  if (groups.some((group) => group === null)) {
+    throw new Error("The backup contains an invalid group or link.");
+  }
+
+  return { version: CURRENT_DB_VERSION, groups: groups as LinkGroup[] };
+}
+
 export function useLinkDB() {
   const {
     value: raw,

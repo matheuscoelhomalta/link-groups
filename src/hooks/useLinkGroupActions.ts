@@ -2,6 +2,8 @@ import { Alert, confirmAlert, showToast, Toast } from "@raycast/api";
 import { randomUUID } from "crypto";
 
 import { useLinkDB } from "../lib/storage";
+import { ImportMode, mergeLinkDB, MergeResult } from "../lib/data-transfer";
+import type { LinkDB } from "../lib/types";
 import type { Browser, LinkGroup, LinkItem } from "../lib/types";
 import { normalizeUrl, titleFromUrl } from "../lib/url-utils";
 
@@ -15,6 +17,27 @@ export function useLinkGroupActions() {
 
   function getGroup(groupId: string): LinkGroup | undefined {
     return db.groups.find((group) => group.id === groupId);
+  }
+
+  async function importData(
+    imported: LinkDB,
+    mode: ImportMode,
+  ): Promise<MergeResult> {
+    let result: MergeResult = {
+      db: imported,
+      groupsAdded: imported.groups.length,
+      linksAdded: imported.groups.reduce(
+        (total, group) => total + group.links.length,
+        0,
+      ),
+    };
+
+    await updateDB((current) => {
+      result = mode === "merge" ? mergeLinkDB(current, imported) : result;
+      return result.db;
+    });
+
+    return result;
   }
 
   async function addGroup(
@@ -382,5 +405,6 @@ export function useLinkGroupActions() {
     deleteLink,
     editLinks,
     getGroup,
+    importData,
   };
 }
