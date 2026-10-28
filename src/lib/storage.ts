@@ -1,8 +1,16 @@
-import { LocalStorage, showToast, Toast } from "@raycast/api";
-import { useLocalStorage } from "@raycast/utils";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { environment, LocalStorage, showToast, Toast } from "@raycast/api";
+import { useEffect, useState } from "react";
+import { createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Browser, LinkDB, LinkGroup, LinkItem } from "./types";
 import { BROWSER_OPTIONS } from "./types";
+import {
+  readSyncConfig,
+  requestSync,
+  type SyncConfig,
+  type SyncState,
+} from "./sync";
 
 const STORAGE_KEY = "link-groups-db";
 const BACKUP_STORAGE_KEY = "link-groups-db-backup";
@@ -124,104 +132,182 @@ export function parseImportedDB(raw: string): LinkDB {
   return { version: CURRENT_DB_VERSION, groups: groups as LinkGroup[] };
 }
 
-export function useLinkDB() {
-  const {
-    value: raw,
-    setValue: setRaw,
-    isLoading,
-  } = useLocalStorage<string>(STORAGE_KEY, DEFAULT_DB_RAW);
+let databaseQueue: Promise<unknown> = Promise.resolve();
+let refreshTimer: ReturnType<typeof setInterval> | undefined;
+let pendingRefresh: Promise<unknown> | undefined;
+let syncUnavailable = false;
+const SYNC_JOINED_KEY = "link-groups-sync-joined";
 
-  const parsed = useMemo(() => parseDB(raw), [raw]);
-  const [db, setDb] = useState<LinkDB>(() =>
-    liveDb === DEFAULT_DB ? parsed.db : liveDb,
-  );
-
-  const queueRef = useRef(Promise.resolve());
-  const lastCorruptRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    dbListeners.add(setDb);
-    return () => {
-      dbListeners.delete(setDb);
-    };
-  }, []);
-
-  useEffect(() => {
-    setLiveDb(parsed.db);
-  }, [parsed.db]);
-
-  useEffect(() => {
-    if (!parsed.hadValue || parsed.isValid) return;
-    if (raw && lastCorruptRef.current === raw) return;
-    lastCorruptRef.current = raw ?? null;
-
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const backupRaw =
-          await LocalStorage.getItem<string>(BACKUP_STORAGE_KEY);
-        const backupParsed = parseDB(backupRaw);
-        if (cancelled) return;
-
-        if (backupParsed.isValid && backupParsed.hadValue && backupRaw) {
-          await setRaw(backupRaw);
-          await showToast({
-            style: Toast.Style.Failure,
-            title: "Data corrupted",
-            message: "Recovered from the last backup.",
-          });
-          return;
-        }
-
-        await setRaw(DEFAULT_DB_RAW);
-        await showToast({
-          style: Toast.Style.Failure,
-          title: "Data corrupted",
-          message: "Reset to an empty database.",
-        });
-      } catch (error) {
-        if (cancelled) return;
-        await showToast({
-          style: Toast.Style.Failure,
-          title: "Failed to recover data",
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [parsed.hadValue, parsed.isValid, raw, setRaw]);
-
-  async function setDB(next: LinkDB) {
-    await updateDB(() => next);
-  }
-
-  async function updateDB(updater: (current: LinkDB) => LinkDB) {
-    const run = queueRef.current.then(async () => {
-      const currentRaw =
-        (await LocalStorage.getItem<string>(STORAGE_KEY)) ?? DEFAULT_DB_RAW;
-      const current = parseDB(currentRaw).db;
-      const next = updater(current);
-      const nextRaw = JSON.stringify(next);
-
-      if (currentRaw) {
-        await LocalStorage.setItem(BACKUP_STORAGE_KEY, currentRaw);
-      }
-
-      await setRaw(nextRaw);
-    });
-
-    queueRef.current = run.catch(() => {});
-    return run;
-  }
-
-  return { db, setDB, updateDB, isLoading };
+function enqueue<T>(operation: () => Promise<T>): Promise<T> {
+  const result = databaseQueue.then(operation);
+  databaseQueue = result.catch(() => {});
+  return result;
 }
 
-export async function readDB(): Promise<LinkDB> {
+async function saveLocalDB(db: LinkDB): Promise<void> {
+  const raw = JSON.stringify(db);
+  const currentRaw = await LocalStorage.getItem<string>(STORAGE_KEY);
+  if (currentRaw !== raw) {
+    if (currentRaw) await LocalStorage.setItem(BACKUP_STORAGE_KEY, currentRaw);
+    await LocalStorage.setItem(STORAGE_KEY, raw);
+  }
+  setLiveDb(db);
+}
+
+async function loadSyncState(
+  config: SyncConfig,
+  localDB: LinkDB,
+): Promise<SyncState> {
+  const identity = JSON.stringify(config);
+  const joined = await LocalStorage.getItem<string>(SYNC_JOINED_KEY);
+  const response = await requestSync(
+    config,
+    joined === identity ? { action: "read" } : { action: "join", db: localDB },
+  );
+  if ("conflict" in response)
+    throw new Error("Unexpected synchronization conflict.");
+  const state = {
+    ...response,
+    db: parseImportedDB(JSON.stringify(response.db)),
+  };
+  await saveLocalDB(state.db);
+  if (joined !== identity)
+    await LocalStorage.setItem(SYNC_JOINED_KEY, identity);
+  await recordSyncStatus(state);
+  syncUnavailable = false;
+  return state;
+}
+
+async function recordSyncStatus(state: SyncState) {
+  const raw = JSON.stringify(state.db);
+  const hash = createHash("sha256").update(raw).digest("hex");
+  const backups = join(environment.supportPath, "backups");
+  await mkdir(backups, { recursive: true, mode: 0o700 });
+  try {
+    await writeFile(
+      join(backups, `revision-${state.revision}-${hash}.json`),
+      raw,
+      {
+        mode: 0o600,
+        flag: "wx",
+      },
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  await writeFile(
+    join(environment.supportPath, "sync-status.json"),
+    JSON.stringify({
+      lastSuccess: new Date().toISOString(),
+      revision: state.revision,
+      groups: state.db.groups.length,
+      links: state.db.groups.reduce(
+        (count, group) => count + group.links.length,
+        0,
+      ),
+      hash,
+    }),
+    { mode: 0o600 },
+  );
+}
+
+function refreshDB() {
+  if (!pendingRefresh) {
+    pendingRefresh = readDB()
+      .catch((error) =>
+        showToast({
+          style: Toast.Style.Failure,
+          title: "Failed to load groups",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      )
+      .finally(() => {
+        pendingRefresh = undefined;
+      });
+  }
+  return pendingRefresh;
+}
+
+export function useLinkDB() {
+  const [db, setDb] = useState(liveDb);
+  const [isLoading, setIsLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    dbListeners.add(setDb);
+    void refreshDB().finally(() => {
+      if (!cancelled) setIsLoading(false);
+    });
+    if (!refreshTimer) {
+      refreshTimer = setInterval(() => {
+        void refreshDB();
+      }, 5000);
+    }
+    return () => {
+      cancelled = true;
+      dbListeners.delete(setDb);
+      if (dbListeners.size === 0) {
+        clearInterval(refreshTimer);
+        refreshTimer = undefined;
+      }
+    };
+  }, []);
+  return { db, setDB: writeDB, updateDB, isLoading };
+}
+
+export function updateDB(updater: (current: LinkDB) => LinkDB): Promise<void> {
+  return enqueue(async () => {
+    const localDB = await readLocalDB();
+    const config = await readSyncConfig(environment.supportPath);
+    if (!config) {
+      await saveLocalDB(updater(localDB));
+      return;
+    }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = await loadSyncState(config, localDB);
+      const next = updater(current.db);
+      const response = await requestSync(config, {
+        action: "write",
+        revision: current.revision,
+        db: next,
+      });
+      if ("conflict" in response) continue;
+      const state = {
+        ...response,
+        db: parseImportedDB(JSON.stringify(response.db)),
+      };
+      await saveLocalDB(state.db);
+      await recordSyncStatus(state);
+      return;
+    }
+    throw new Error(
+      "Groups changed on another Mac. Please try your change again.",
+    );
+  });
+}
+
+export function readDB(): Promise<LinkDB> {
+  return enqueue(async () => {
+    const localDB = await readLocalDB();
+    try {
+      const config = await readSyncConfig(environment.supportPath);
+      if (config) return (await loadSyncState(config, localDB)).db;
+    } catch (error) {
+      if (!syncUnavailable) {
+        syncUnavailable = true;
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Group sync unavailable",
+          message:
+            "Showing cached groups. Changes require a connection to your sync Mac.",
+        });
+      }
+    }
+    setLiveDb(localDB);
+    return localDB;
+  });
+}
+
+async function readLocalDB(): Promise<LinkDB> {
   const raw = await LocalStorage.getItem<string>(STORAGE_KEY);
   const parsed = parseDB(raw);
   if (parsed.isValid || !parsed.hadValue) return parsed.db;
@@ -257,10 +343,5 @@ export async function readDB(): Promise<LinkDB> {
 }
 
 export async function writeDB(db: LinkDB): Promise<void> {
-  const raw = JSON.stringify(db);
-  const currentRaw = await LocalStorage.getItem<string>(STORAGE_KEY);
-  if (currentRaw) {
-    await LocalStorage.setItem(BACKUP_STORAGE_KEY, currentRaw);
-  }
-  await LocalStorage.setItem(STORAGE_KEY, raw);
+  await updateDB(() => db);
 }

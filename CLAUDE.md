@@ -16,7 +16,7 @@ This is a Raycast extension called "Link Groups" that allows users to organize l
 - `npm run publish` - Publish to Raycast Store (runs `npx @raycast/api@latest publish`)
 
 ### Testing
-This extension does not have a test suite. Testing is done manually through Raycast's development mode.
+Run `npm test` for the sync server and storage integration tests, including concurrent writes, backups, recovery, and offline behavior. Verify UI changes manually through Raycast's development mode.
 
 ## Architecture
 
@@ -30,12 +30,14 @@ The extension exposes two Raycast commands defined in package.json:
 ### Data Flow
 
 **Storage Layer** (`src/lib/storage.ts`):
-- All data is persisted in Raycast's LocalStorage under the key `link-groups-db`
+- Data is cached in Raycast's LocalStorage under the key `link-groups-db`; without a sync configuration, this is the primary storage
 - Automatic backup to `link-groups-db-backup` before each write for corruption recovery
 - `useLinkDB()` hook - For React components (view commands). Provides reactive state with `isLoading` indicator. Uses a module-level `liveDb` variable with listeners to sync state across multiple hook instances
 - `readDB()` / `writeDB()` functions - For no-view commands. Direct async read/write without reactive state
 - Data structure: `LinkDB` with version field and array of `LinkGroup` objects
 - Safe parsing with fallback to DEFAULT_DB if corrupted; attempts backup recovery first
+- Optional `sync-config.json` in the extension support directory enables a shared database through an existing SSH/Tailscale connection. `src/lib/sync.ts` transports requests and `src/lib/sync-server.ts` implements locked, atomic writes with revision checks on the sync Mac
+- Synced revisions are archived as importable JSON backups on each Mac. Reads refresh automatically while the UI is open; offline reads use the local cache, while edits require the sync Mac
 
 **Component Hierarchy**:
 ```
@@ -59,10 +61,10 @@ open-link-group.ts (no-view command)
 
 **State Management**:
 - No global state library (Redux, Zustand, etc.)
-- All state managed through `useLinkDB()` hook which wraps Raycast's `useLocalStorage`
+- State is managed through `useLinkDB()` with module-level listeners and a shared automatic refresh
 - UI commands call into `useLinkGroupActions()` in `src/hooks/useLinkGroupActions.ts` to keep business logic out of components. Actions include: `addGroup`, `deleteGroup`, `updateGroup`, `updateGroupBrowser`, `addLink`, `addLinks`, `deleteLink`, `editLinks`
 - Updates are immutable - map over arrays to create new objects rather than mutating
-- Write operations use a queue (`queueRef`) to serialize concurrent updates and prevent race conditions
+- Read and write operations share a module-level queue; overlapping automatic refreshes reuse the pending request. Synced writes retry against the current revision if another Mac changed the database
 
 **ID Generation**:
 - Both groups and links use `randomUUID()` from Node's `crypto` module

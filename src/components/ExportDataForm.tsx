@@ -89,7 +89,7 @@ export default function ExportDataForm({ db }: { db: LinkDB }) {
         <Form.Dropdown.Item
           value="backup"
           title="Link Groups Backup"
-          icon={Icon.Archive}
+          icon={Icon.Box}
         />
         <Form.Dropdown.Item
           value="pins"
