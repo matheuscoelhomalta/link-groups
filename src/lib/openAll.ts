@@ -22,11 +22,14 @@ export async function openAllUrls(
     return { opened: 0, failed: 0, total: 0 };
   }
 
-  const results = await Promise.allSettled(
-    urls.map((url) => open(url, browser || undefined)),
-  );
-
-  const failed = results.filter((r) => r.status === "rejected").length;
+  let failed = 0;
+  for (const url of urls) {
+    try {
+      await open(url, browser || undefined);
+    } catch {
+      failed += 1;
+    }
+  }
   const opened = urls.length - failed;
 
   if (!silent) {

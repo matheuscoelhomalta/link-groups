@@ -79,7 +79,7 @@ open-link-group.ts (no-view command)
 
 **Opening Links**:
 - `openAllUrls()` function in `src/lib/openAll.ts` handles opening multiple URLs
-- Uses `Promise.allSettled()` to open all links simultaneously
+- Opens links sequentially in their saved order, continuing if an individual link fails
 - Shows toast notification with success/failure count
 - Respects the group's browser preference via Raycast's `open()` API
 
