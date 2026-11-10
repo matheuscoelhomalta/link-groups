@@ -1,10 +1,9 @@
 import { Alert, confirmAlert, showToast, Toast } from "@raycast/api";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
 
 import { useLinkDB } from "../lib/storage";
 import { ImportMode, mergeLinkDB, MergeResult } from "../lib/data-transfer";
-import type { LinkDB } from "../lib/types";
-import type { Browser, LinkGroup, LinkItem } from "../lib/types";
+import type { Browser, LinkDB, LinkGroup, LinkItem } from "../lib/types";
 import { normalizeUrl, titleFromUrl } from "../lib/url-utils";
 
 export type AddLinksResult = {
@@ -331,14 +330,10 @@ export function useLinkGroupActions() {
 
   async function editLinks(
     groupId: string,
-    keepUrls: string[],
+    removeIds: string[],
     addUrls: string[],
   ): Promise<{ removed: number; added: number }> {
-    const keepCounts = new Map<string, number>();
-    for (const url of keepUrls) {
-      keepCounts.set(url, (keepCounts.get(url) || 0) + 1);
-    }
-
+    const removals = new Set(removeIds);
     const newLinks: LinkItem[] = addUrls.map((url) => ({
       id: randomUUID(),
       title: titleFromUrl(url),
@@ -349,22 +344,15 @@ export function useLinkGroupActions() {
       let removed = 0;
       let foundGroup = false;
       await updateDB((current) => {
+        removed = 0;
+        foundGroup = false;
         const nextGroups = current.groups.map((group) => {
           if (group.id !== groupId) return group;
           foundGroup = true;
 
-          const keptLinks: LinkItem[] = [];
-          const urlCounts = new Map<string, number>();
-
-          for (const link of group.links) {
-            const currentCount = urlCounts.get(link.url) || 0;
-            const maxCount = keepCounts.get(link.url) || 0;
-
-            if (currentCount < maxCount) {
-              keptLinks.push(link);
-              urlCounts.set(link.url, currentCount + 1);
-            }
-          }
+          const keptLinks = group.links.filter(
+            (link) => !removals.has(link.id),
+          );
 
           removed = group.links.length - keptLinks.length;
           return { ...group, links: [...newLinks, ...keptLinks] };

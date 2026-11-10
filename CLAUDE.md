@@ -33,7 +33,7 @@ The extension exposes two Raycast commands defined in package.json:
 - Data is cached in Raycast's LocalStorage under the key `link-groups-db`; without a sync configuration, this is the primary storage
 - Automatic backup to `link-groups-db-backup` before each write for corruption recovery
 - `useLinkDB()` hook - For React components (view commands). Provides reactive state with `isLoading` indicator. Uses a module-level `liveDb` variable with listeners to sync state across multiple hook instances
-- `readDB()` / `writeDB()` functions - For no-view commands. Direct async read/write without reactive state
+- `readDB()` / `updateDB()` functions - Usable outside React (no-view commands). `updateDB()` applies an updater to the current database
 - Data structure: `LinkDB` with version field and array of `LinkGroup` objects
 - Safe parsing with fallback to DEFAULT_DB if corrupted; attempts backup recovery first
 - Optional `sync-config.json` in the extension support directory enables a shared database through an existing SSH/Tailscale connection. `src/lib/sync.ts` transports requests and `src/lib/sync-server.ts` implements locked, atomic writes with revision checks on the sync Mac
@@ -45,7 +45,10 @@ link-groups.tsx (main command)
 ├── LinkGroupsCommand - List view of all groups
 │   ├── AddGroupForm - Create new group
 │   ├── EditGroupForm - Edit group title and browser
-│   └── ChangeBrowserForm - Change group's default browser
+│   ├── ChangeBrowserForm - Change group's default browser
+│   └── DataTransferActions - Import/export action section
+│       ├── ImportDataForm - Merge or replace from a backup file
+│       └── ExportDataForm - Write a backup or Pins-compatible JSON
 │
 group-links.tsx (pushed from LinkGroupsCommand)
 ├── GroupLinks - List view of links within a group
@@ -62,9 +65,9 @@ open-link-group.ts (no-view command)
 **State Management**:
 - No global state library (Redux, Zustand, etc.)
 - State is managed through `useLinkDB()` with module-level listeners and a shared automatic refresh
-- UI commands call into `useLinkGroupActions()` in `src/hooks/useLinkGroupActions.ts` to keep business logic out of components. Actions include: `addGroup`, `deleteGroup`, `updateGroup`, `updateGroupBrowser`, `addLink`, `addLinks`, `deleteLink`, `editLinks`
+- UI commands call into `useLinkGroupActions()` in `src/hooks/useLinkGroupActions.ts` to keep business logic out of components. Actions include: `addGroup`, `deleteGroup`, `updateGroup`, `updateGroupBrowser`, `addLink`, `addLinks`, `deleteLink`, `editLinks`, `importData`; `getGroup` looks up a group by ID
 - Updates are immutable - map over arrays to create new objects rather than mutating
-- Read and write operations share a module-level queue; overlapping automatic refreshes reuse the pending request. Synced writes retry against the current revision if another Mac changed the database
+- Read and write operations share a module-level queue and an OS file lock across command runtimes; overlapping automatic refreshes reuse the pending request. Synced writes retry against the current revision if another Mac changed the database
 
 **ID Generation**:
 - Both groups and links use `randomUUID()` from Node's `crypto` module
@@ -85,6 +88,11 @@ open-link-group.ts (no-view command)
 
 **URL Utilities**:
 - `src/lib/url-utils.ts` provides URL normalization, bulk parsing, and title generation for imports
+
+**Import and Export**:
+- `parseImportedDB()` in `src/lib/storage.ts` strictly validates backup files (and sync responses)
+- `mergeLinkDB()` in `src/lib/data-transfer.ts` merges groups by title and skips links whose URL already exists in the group
+- `convertToPinsExport()` in `src/lib/pins-export.ts` converts the database to the Pins extension's import format
 
 **Deeplinks**:
 - Groups can generate deeplinks using `createDeeplink()` from `@raycast/utils`

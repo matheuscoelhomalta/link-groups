@@ -1,15 +1,18 @@
 import { environment, LocalStorage, showToast, Toast } from "@raycast/api";
 import { useEffect, useState } from "react";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Browser, LinkDB, LinkGroup, LinkItem } from "./types";
 import { BROWSER_OPTIONS } from "./types";
+import { reconcileOfflineDB } from "./data-transfer";
 import {
   readSyncConfig,
   requestSync,
   type SyncConfig,
   type SyncState,
+  type SyncReconciliation,
 } from "./sync";
 
 const STORAGE_KEY = "link-groups-db";
@@ -25,7 +28,10 @@ let liveDb: LinkDB = DEFAULT_DB;
 const dbListeners = new Set<(db: LinkDB) => void>();
 
 function setLiveDb(next: LinkDB) {
-  if (liveDb === next) return;
+  // Every refresh parses a fresh object; notifying on identical content would
+  // re-render every open view on each poll.
+  if (liveDb === next || JSON.stringify(liveDb) === JSON.stringify(next))
+    return;
   liveDb = next;
   for (const listener of dbListeners) {
     listener(next);
@@ -137,11 +143,112 @@ let refreshTimer: ReturnType<typeof setInterval> | undefined;
 let pendingRefresh: Promise<unknown> | undefined;
 let syncUnavailable = false;
 const SYNC_JOINED_KEY = "link-groups-sync-joined";
+const SYNC_OFFLINE_BASE_KEY = "link-groups-sync-offline-base";
+const SYNC_CLIENT_KEY = "link-groups-sync-client";
+type OfflineChanges = {
+  db: LinkDB;
+  local?: LinkDB;
+  reconciliation: SyncReconciliation;
+};
+
+function parseOfflineChanges(raw: string): OfflineChanges {
+  const value: unknown = JSON.parse(raw);
+  if (
+    !isRecord(value) ||
+    !isRecord(value.reconciliation) ||
+    !asNonEmptyString(value.reconciliation.clientId) ||
+    !asNonEmptyString(value.reconciliation.id)
+  )
+    throw new Error("Invalid offline sync state.");
+  return {
+    db: parseImportedDB(JSON.stringify(value.db)),
+    local:
+      value.local === undefined
+        ? undefined
+        : parseImportedDB(JSON.stringify(value.local)),
+    reconciliation: {
+      clientId: value.reconciliation.clientId as string,
+      id: value.reconciliation.id as string,
+    },
+  };
+}
+
+function isSameSyncTarget(
+  joined: string | undefined,
+  config: SyncConfig,
+): boolean {
+  if (!joined) return false;
+  try {
+    const previous: unknown = JSON.parse(joined);
+    // Transport paths and property order do not change the remote home directory.
+    return (
+      isRecord(previous) &&
+      !Array.isArray(previous) &&
+      previous.sshHost === config.sshHost
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function recoverOfflineChanges(localDB: LinkDB, title: string) {
+  const { filename } = await archiveDB(localDB, "offline-recovery");
+  await LocalStorage.removeItem(SYNC_OFFLINE_BASE_KEY);
+  try {
+    await showToast({
+      style: Toast.Style.Failure,
+      title,
+      message: `Cached groups saved to ${filename}. Reloading shared groups.`,
+    });
+  } catch {
+    // Toast may be unavailable in a background command.
+  }
+}
 
 function enqueue<T>(operation: () => Promise<T>): Promise<T> {
-  const result = databaseQueue.then(operation);
+  const result = databaseQueue.then(() => withDatabaseLock(operation));
   databaseQueue = result.catch(() => {});
   return result;
+}
+
+async function withDatabaseLock<T>(operation: () => Promise<T>): Promise<T> {
+  await mkdir(environment.supportPath, { recursive: true, mode: 0o700 });
+  // UI and no-view commands have separate JS queues but share LocalStorage.
+  // tee echoes our readiness signal only after lockf acquires the lock, then
+  // exits when stdin closes (including if this command runtime exits).
+  const holder = spawn("/usr/bin/lockf", [
+    "-k",
+    join(environment.supportPath, "database.lock"),
+    "/usr/bin/tee",
+  ]);
+  let diagnostic = "";
+  holder.stderr.on("data", (chunk: Buffer) => {
+    diagnostic = (diagnostic + chunk.toString()).slice(0, 500);
+  });
+  const exited = new Promise<void>((resolve, reject) => {
+    holder.once("error", reject);
+    holder.once("close", (code) => {
+      if (code === 0) resolve();
+      else
+        reject(new Error(`Unable to lock group storage. ${diagnostic.trim()}`));
+    });
+  });
+  const acquired = new Promise<void>((resolve, reject) => {
+    holder.stdout.once("data", () => resolve());
+    holder.stdin.on("error", reject);
+    void exited.then(
+      () => reject(new Error("Group storage lock closed before acquisition.")),
+      reject,
+    );
+  });
+  try {
+    holder.stdin.write("locked\n");
+    await acquired;
+    return await operation();
+  } finally {
+    holder.stdin.end();
+    await exited;
+  }
 }
 
 async function saveLocalDB(db: LinkDB): Promise<void> {
@@ -160,16 +267,86 @@ async function loadSyncState(
 ): Promise<SyncState> {
   const identity = JSON.stringify(config);
   const joined = await LocalStorage.getItem<string>(SYNC_JOINED_KEY);
-  const response = await requestSync(
+  const sameTarget = isSameSyncTarget(joined, config);
+  const offlineBase = await LocalStorage.getItem<string>(SYNC_OFFLINE_BASE_KEY);
+  let response = await requestSync(
     config,
-    joined === identity ? { action: "read" } : { action: "join", db: localDB },
+    sameTarget ? { action: "read" } : { action: "join", db: localDB },
   );
   if ("conflict" in response)
     throw new Error("Unexpected synchronization conflict.");
+  let pending: OfflineChanges | undefined;
+  if (!sameTarget && offlineBase) {
+    await recoverOfflineChanges(localDB, "Sync target changed");
+  }
+  if (sameTarget && offlineBase) {
+    try {
+      pending = parseOfflineChanges(offlineBase);
+    } catch {
+      await recoverOfflineChanges(localDB, "Offline sync state recovered");
+    }
+  }
+  if (pending) {
+    // Freeze the payload before sending: a lost response can leave this
+    // operation pending while the user makes further edits with sync disabled.
+    if (!pending.local) {
+      pending.local = localDB;
+      await LocalStorage.setItem(
+        SYNC_OFFLINE_BASE_KEY,
+        JSON.stringify(pending),
+      );
+    }
+    while (pending) {
+      const baseline = parseImportedDB(JSON.stringify(pending.db));
+      const local = parseImportedDB(JSON.stringify(pending.local));
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const current = {
+          ...response,
+          db: parseImportedDB(JSON.stringify(response.db)),
+        };
+        await recordSyncStatus(current);
+        const result = await requestSync(config, {
+          action: "write",
+          revision: current.revision,
+          db: reconcileOfflineDB(baseline, local, current.db),
+          reconciliation: pending.reconciliation,
+        });
+        if (!("conflict" in result)) {
+          response = result;
+          break;
+        }
+        if (attempt === 2)
+          throw new Error(
+            "Groups changed on another Mac. Please try your change again.",
+          );
+        response = await requestSync(config, { action: "read" });
+        if ("conflict" in response)
+          throw new Error("Unexpected synchronization conflict.");
+      }
+      if (JSON.stringify(pending.local) === JSON.stringify(localDB)) {
+        pending = undefined;
+      } else {
+        pending = {
+          db: local,
+          local: localDB,
+          reconciliation: {
+            clientId: pending.reconciliation.clientId,
+            id: randomUUID(),
+          },
+        };
+        await LocalStorage.setItem(
+          SYNC_OFFLINE_BASE_KEY,
+          JSON.stringify(pending),
+        );
+      }
+    }
+  }
   const state = {
     ...response,
     db: parseImportedDB(JSON.stringify(response.db)),
   };
+  // The remote has accepted these edits; do not replay them after caching.
+  if (offlineBase) await LocalStorage.removeItem(SYNC_OFFLINE_BASE_KEY);
   await saveLocalDB(state.db);
   if (joined !== identity)
     await LocalStorage.setItem(SYNC_JOINED_KEY, identity);
@@ -178,23 +355,25 @@ async function loadSyncState(
   return state;
 }
 
-async function recordSyncStatus(state: SyncState) {
-  const raw = JSON.stringify(state.db);
+async function archiveDB(db: LinkDB, prefix: string) {
+  const raw = JSON.stringify(db);
   const hash = createHash("sha256").update(raw).digest("hex");
   const backups = join(environment.supportPath, "backups");
   await mkdir(backups, { recursive: true, mode: 0o700 });
+  const filename = join(backups, `${prefix}-${hash}.json`);
   try {
-    await writeFile(
-      join(backups, `revision-${state.revision}-${hash}.json`),
-      raw,
-      {
-        mode: 0o600,
-        flag: "wx",
-      },
-    );
+    await writeFile(filename, raw, {
+      mode: 0o600,
+      flag: "wx",
+    });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
+  return { hash, filename };
+}
+
+async function recordSyncStatus(state: SyncState) {
+  const { hash } = await archiveDB(state.db, `revision-${state.revision}`);
   await writeFile(
     join(environment.supportPath, "sync-status.json"),
     JSON.stringify({
@@ -234,6 +413,8 @@ export function useLinkDB() {
   useEffect(() => {
     let cancelled = false;
     dbListeners.add(setDb);
+    // Catch up on a change published between render and subscription.
+    setDb(liveDb);
     void refreshDB().finally(() => {
       if (!cancelled) setIsLoading(false);
     });
@@ -251,7 +432,7 @@ export function useLinkDB() {
       }
     };
   }, []);
-  return { db, setDB: writeDB, updateDB, isLoading };
+  return { db, updateDB, isLoading };
 }
 
 export function updateDB(updater: (current: LinkDB) => LinkDB): Promise<void> {
@@ -259,6 +440,21 @@ export function updateDB(updater: (current: LinkDB) => LinkDB): Promise<void> {
     const localDB = await readLocalDB();
     const config = await readSyncConfig(environment.supportPath);
     if (!config) {
+      if (
+        (await LocalStorage.getItem<string>(SYNC_JOINED_KEY)) &&
+        !(await LocalStorage.getItem<string>(SYNC_OFFLINE_BASE_KEY))
+      ) {
+        const clientId =
+          (await LocalStorage.getItem<string>(SYNC_CLIENT_KEY)) ?? randomUUID();
+        await LocalStorage.setItem(SYNC_CLIENT_KEY, clientId);
+        await LocalStorage.setItem(
+          SYNC_OFFLINE_BASE_KEY,
+          JSON.stringify({
+            db: localDB,
+            reconciliation: { clientId, id: randomUUID() },
+          } satisfies OfflineChanges),
+        );
+      }
       await saveLocalDB(updater(localDB));
       return;
     }
@@ -288,6 +484,8 @@ export function updateDB(updater: (current: LinkDB) => LinkDB): Promise<void> {
 export function readDB(): Promise<LinkDB> {
   return enqueue(async () => {
     const localDB = await readLocalDB();
+    // Show cached groups right away; the sync round trip can take seconds.
+    setLiveDb(localDB);
     try {
       const config = await readSyncConfig(environment.supportPath);
       if (config) return (await loadSyncState(config, localDB)).db;
@@ -297,18 +495,25 @@ export function readDB(): Promise<LinkDB> {
         await showToast({
           style: Toast.Style.Failure,
           title: "Group sync unavailable",
-          message:
-            "Showing cached groups. Changes require a connection to your sync Mac.",
+          message: `Showing cached groups. ${error instanceof Error ? error.message : String(error)}`,
         });
       }
     }
-    setLiveDb(localDB);
     return localDB;
   });
 }
 
 async function readLocalDB(): Promise<LinkDB> {
   const raw = await LocalStorage.getItem<string>(STORAGE_KEY);
+  if (await LocalStorage.getItem<string>(SYNC_OFFLINE_BASE_KEY)) {
+    try {
+      parseImportedDB(raw ?? "");
+    } catch {
+      // Tolerant cache parsing may drop damaged records. Never publish those
+      // omissions (or a recovery snapshot) as intentional user deletions.
+      await LocalStorage.removeItem(SYNC_OFFLINE_BASE_KEY);
+    }
+  }
   const parsed = parseDB(raw);
   if (parsed.isValid || !parsed.hadValue) return parsed.db;
 
@@ -340,8 +545,4 @@ async function readLocalDB(): Promise<LinkDB> {
     // Toast not available in background mode - silent recovery
   }
   return DEFAULT_DB;
-}
-
-export async function writeDB(db: LinkDB): Promise<void> {
-  await updateDB(() => db);
 }

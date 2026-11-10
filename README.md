@@ -6,9 +6,10 @@ Organize links into custom groups and open them all at once with keyboard shortc
 
 - **Create Link Groups**: Organize your frequently used links into named groups
 - **Bulk Import**: Paste multiple URLs at once to quickly populate a group
-- **Browser Selection**: Choose which browser to open links in (Chrome, Safari, Firefox, Arc, Edge, Brave, Opera, or system default)
+- **Browser Selection**: Choose which browser to open links in (Chrome, Safari, Firefox, Arc, Edge, Brave, Vivaldi, or system default)
 - **Keyboard Shortcuts**: Create Raycast Quicklinks to open all links in a group with a single shortcut
 - **Deeplink Support**: Generate deeplinks to trigger groups from other apps or scripts
+- **Import & Export**: Back up and restore groups as JSON (merge or replace), or export a file the Pins extension can import
 
 ## Usage
 
@@ -17,13 +18,13 @@ Organize links into custom groups and open them all at once with keyboard shortc
 1. Open Raycast and search for "Link Groups"
 2. Create a new group with `⌘ N`
 3. Add links to your group manually or use bulk import
-4. Open all links in a group with `⌘ O`
+4. Open all links with the **Open All Links** action on a group (`⌘ K`), or `⌘ ⇧ O` inside a group
 
 ### Creating Keyboard Shortcuts
 
-1. Select a group and press `⌘ ⇧ C` to copy the deeplink
-2. Create a new Raycast Quicklink with the copied deeplink
-3. Assign your preferred keyboard shortcut to the Quicklink
+1. Select a group, open the action panel (`⌘ K`) and choose **Create Hotkey Quicklink**
+2. Confirm the Quicklink that Raycast pre-fills with the group's deeplink
+3. Assign your preferred keyboard shortcut to the Quicklink in Raycast settings
 
 ### Bulk Import
 

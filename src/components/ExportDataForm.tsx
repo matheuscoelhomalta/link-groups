@@ -8,8 +8,8 @@ import {
   Toast,
   useNavigation,
 } from "@raycast/api";
-import { writeFile } from "fs/promises";
-import path from "path";
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import { convertToPinsExport } from "../lib/pins-export";
 import type { LinkDB } from "../lib/types";

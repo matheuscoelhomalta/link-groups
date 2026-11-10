@@ -6,6 +6,7 @@ import type { LinkDB } from "./types";
 
 export type SyncConfig = { sshHost?: string; tailscalePath?: string };
 export type SyncState = { version: 1; revision: number; db: LinkDB };
+export type SyncReconciliation = { clientId: string; id: string };
 
 export async function readSyncConfig(
   supportPath: string,
@@ -17,7 +18,12 @@ export async function readSyncConfig(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
-  const config = JSON.parse(raw) as SyncConfig;
+  let config: SyncConfig;
+  try {
+    config = JSON.parse(raw) as SyncConfig;
+  } catch {
+    throw new Error("Invalid Link Groups sync configuration.");
+  }
   if (
     !config ||
     typeof config !== "object" ||
@@ -42,7 +48,12 @@ export function requestSync(
   request:
     | { action: "read" }
     | { action: "join"; db: LinkDB }
-    | { action: "write"; revision: number; db: LinkDB },
+    | {
+        action: "write";
+        revision: number;
+        db: LinkDB;
+        reconciliation?: SyncReconciliation;
+      },
 ): Promise<SyncState | { conflict: true }> {
   const command = config.sshHost ? "/usr/bin/ssh" : "/usr/bin/python3";
   const args = config.sshHost

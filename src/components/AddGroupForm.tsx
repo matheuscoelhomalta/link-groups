@@ -7,11 +7,11 @@ import {
   useNavigation,
 } from "@raycast/api";
 
-import type { Browser } from "../lib/types";
+import type { Browser, LinkGroup } from "../lib/types";
 import { BROWSER_OPTIONS } from "../lib/types";
 
 type AddGroupFormProps = {
-  onCreate: (title: string, browser: Browser) => Promise<unknown | null>;
+  onCreate: (title: string, browser: Browser) => Promise<LinkGroup | null>;
 };
 
 export default function AddGroupForm({ onCreate }: AddGroupFormProps) {

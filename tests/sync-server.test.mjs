@@ -139,18 +139,58 @@ test("deletions persist on subsequent reads and the preceding data is backed up"
 test("invalid data and corrupt shared files fail without overwriting the database", (t) => {
   const { directory, request } = fixture(t);
   const initial = request({ action: "join", db: db(group("keep")) });
-  assert.throws(() =>
-    request({
-      action: "write",
-      revision: initial.revision,
-      db: db(group("duplicate"), group("duplicate")),
-    }),
+  assert.throws(
+    () =>
+      request({
+        action: "write",
+        revision: initial.revision,
+        db: db(group("duplicate"), group("duplicate")),
+      }),
+    (error) => error.stderr.trim() === "Duplicate group ID",
   );
   assert.deepEqual(request({ action: "read" }), initial);
   writeFileSync(join(directory, "database.json"), "corrupted");
-  assert.throws(() => request({ action: "read" }));
+  assert.throws(
+    () => request({ action: "read" }),
+    (error) =>
+      /^The shared database is damaged/.test(error.stderr) &&
+      !error.stderr.includes("Traceback"),
+  );
   assert.equal(
     readFileSync(join(directory, "database.json"), "utf8"),
     "corrupted",
   );
+});
+
+test("reconciliation receipts survive later edits and acknowledge no-op writes", (t) => {
+  const { request } = fixture(t);
+  const initial = request({ action: "join", db: db(group("keep")) });
+  const reconciliation = { clientId: "book", id: "offline-1" };
+  const write = {
+    action: "write",
+    revision: initial.revision,
+    db: db(group("offline"), group("keep")),
+    reconciliation,
+  };
+  const applied = request(write);
+  const remote = request({
+    action: "write",
+    revision: applied.revision,
+    db: db(group("keep")),
+  });
+  assert.deepEqual(request(write), remote);
+  const noop = {
+    action: "write",
+    revision: remote.revision,
+    db: remote.db,
+    reconciliation: { clientId: "book", id: "offline-2" },
+  };
+  const acknowledged = request(noop);
+  const later = request({
+    action: "write",
+    revision: acknowledged.revision,
+    db: db(),
+  });
+  assert.deepEqual(request(noop), later);
+  assert.deepEqual(request({ ...write, revision: later.revision }), later);
 });

@@ -65,7 +65,7 @@ export default function BulkImportForm({ onImport }: BulkImportFormProps) {
 
               await showToast({
                 style: Toast.Style.Success,
-                title: `Imported ${result.added} links`,
+                title: `Imported ${result.added} link${result.added === 1 ? "" : "s"}`,
                 message: details.length > 0 ? details.join(" ") : undefined,
               });
               pop();

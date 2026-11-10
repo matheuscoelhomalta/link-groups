@@ -4,6 +4,9 @@ export const SYNC_SERVER = String.raw`
 import fcntl, json, os, shutil, sys, tempfile
 from pathlib import Path
 
+# The client shows stderr to the user, so report the message without a traceback.
+sys.excepthook = lambda kind, error, trace: print(error, file=sys.stderr)
+
 root = Path.home() / "Library/Application Support/Link Groups Sync"
 root.mkdir(parents=True, exist_ok=True, mode=0o700)
 database = root / "database.json"
@@ -57,11 +60,22 @@ def save(state):
 with (root / "database.lock").open("a") as lock:
     os.chmod(root / "database.lock", 0o600)
     fcntl.flock(lock, fcntl.LOCK_EX)
-    state = json.loads(database.read_text()) if database.exists() else None
-    if state is not None:
-        if state.get("version") != 1 or not isinstance(state.get("revision"), int):
-            raise ValueError("Invalid sync database")
-        validate(state["db"])
+    try:
+        state = json.loads(database.read_text()) if database.exists() else None
+        if state is not None:
+            if state.get("version") != 1 or not isinstance(state.get("revision"), int):
+                raise ValueError("Invalid sync database")
+            receipts = state.get("reconciliations", {})
+            if not isinstance(receipts, dict) or any(
+                not isinstance(key, str) or not key or not isinstance(value, list) or any(
+                    not isinstance(identifier, str) or not identifier for identifier in value
+                )
+                for key, value in receipts.items()
+            ):
+                raise ValueError("Invalid reconciliation receipts")
+            validate(state["db"])
+    except (ValueError, AttributeError, KeyError) as error:
+        raise ValueError("The shared database is damaged (%s). Restore it from a backup on the sync Mac." % error) from None
     action = request["action"]
     if action == "join":
         incoming = request["db"]
@@ -87,12 +101,28 @@ with (root / "database.lock").open("a") as lock:
         if state is None:
             raise ValueError("Sync database has not been initialized")
         validate(request["db"])
+        reconciliation = request.get("reconciliation")
+        if reconciliation is not None:
+            if not isinstance(reconciliation, dict) or any(
+                not isinstance(reconciliation.get(field), str) or not reconciliation[field]
+                for field in ("clientId", "id")
+            ):
+                raise ValueError("Invalid reconciliation identifier")
+            applied = state.get("reconciliations", {})
+            if reconciliation["id"] in applied.get(reconciliation["clientId"], []):
+                print(json.dumps(state))
+                sys.exit(0)
         if request["revision"] != state["revision"]:
             print(json.dumps({"conflict": True}))
             sys.exit(0)
-        if request["db"] != state["db"]:
+        changed = request["db"] != state["db"]
+        if changed:
             state["db"] = request["db"]
             state["revision"] += 1
+        if reconciliation is not None:
+            # Other command runtimes may still be retrying an older operation.
+            state.setdefault("reconciliations", {}).setdefault(reconciliation["clientId"], []).append(reconciliation["id"])
+        if changed or reconciliation is not None:
             save(state)
     elif action != "read":
         raise ValueError("Unknown sync action")

@@ -9,7 +9,7 @@ import {
   Toast,
   useNavigation,
 } from "@raycast/api";
-import { readFile } from "fs/promises";
+import { readFile } from "node:fs/promises";
 
 import type { ImportMode, MergeResult } from "../lib/data-transfer";
 import { parseImportedDB } from "../lib/storage";
@@ -56,7 +56,7 @@ export default function ImportDataForm({ onImport }: Props) {
         message:
           values.mode === "replace"
             ? `${imported.groups.length} group${imported.groups.length === 1 ? "" : "s"} imported.`
-            : `${result.groupsAdded} groups and ${result.linksAdded} links added.`,
+            : `${result.groupsAdded} group${result.groupsAdded === 1 ? "" : "s"} and ${result.linksAdded} link${result.linksAdded === 1 ? "" : "s"} added.`,
       });
       pop();
     } catch (error) {

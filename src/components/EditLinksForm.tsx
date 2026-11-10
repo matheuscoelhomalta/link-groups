@@ -8,12 +8,12 @@ import {
 } from "@raycast/api";
 
 import type { LinkItem } from "../lib/types";
-import { normalizeUrl } from "../lib/url-utils";
+import { normalizeUrl, parseUrls } from "../lib/url-utils";
 
 type EditLinksFormProps = {
   links: LinkItem[];
   onSave: (
-    keepUrls: string[],
+    removeIds: string[],
     addUrls: string[],
   ) => Promise<{ removed: number; added: number }>;
 };
@@ -30,24 +30,50 @@ export default function EditLinksForm({ links, onSave }: EditLinksFormProps) {
           <Action.SubmitForm
             title="Save Changes"
             onSubmit={async (values) => {
-              const text = (values.urls ?? "").trim();
-
-              const newUrls = text
-                .split("\n")
-                .map((line: string) => line.trim())
-                .filter(Boolean)
-                .map((url: string) => normalizeUrl(url))
-                .filter((url: string | null): url is string => url !== null);
-
               const originalUrls = new Set(links.map((link) => link.url));
-              const keepUrls = newUrls.filter((url: string) =>
-                originalUrls.has(url),
-              );
-              const addUrls = newUrls.filter(
-                (url: string) => !originalUrls.has(url),
-              );
+              const keepCounts = new Map<string, number>();
+              const addUrls: string[] = [];
+              const invalid: string[] = [];
 
-              const result = await onSave(keepUrls, addUrls);
+              for (const line of parseUrls(values.urls ?? "")) {
+                // An untouched line keeps its stored link as is, even when
+                // the stored URL is not in normalized form.
+                const normalized = originalUrls.has(line)
+                  ? line
+                  : normalizeUrl(line);
+                if (!normalized) {
+                  invalid.push(line);
+                } else if (originalUrls.has(normalized)) {
+                  keepCounts.set(
+                    normalized,
+                    (keepCounts.get(normalized) ?? 0) + 1,
+                  );
+                } else {
+                  addUrls.push(normalized);
+                }
+              }
+
+              if (invalid.length > 0) {
+                await showToast({
+                  style: Toast.Style.Failure,
+                  title: `${invalid.length} invalid URL${invalid.length === 1 ? "" : "s"}`,
+                  message: `Use valid http(s) URLs: ${invalid.join(", ")}`,
+                });
+                return;
+              }
+
+              // Only links shown in this form can be removed, so links added
+              // elsewhere while it was open survive the save.
+              const removeIds = links
+                .filter((link) => {
+                  const kept = keepCounts.get(link.url) ?? 0;
+                  if (kept === 0) return true;
+                  keepCounts.set(link.url, kept - 1);
+                  return false;
+                })
+                .map((link) => link.id);
+
+              const result = await onSave(removeIds, addUrls);
 
               if (result.removed === 0 && result.added === 0) {
                 await showToast({
